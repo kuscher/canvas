@@ -1,0 +1,164 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Alexander <4418484+kuscher@users.noreply.github.com>
+Date: Tue, 29 Sep 2026 15:54:20 +0000
+Subject: [PATCH 16/17] Android: Appearance menu (Auto, Light, Dark) in the
+ menu bar
+
+An icon at the end of the menu bar shows the current color scheme
+(half-filled for Auto, a sun for Light, a moon for Dark) and opens
+Auto (follow the system), Light and Dark: the same setting as
+Preferences > Color scheme, saved the same way.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/app/main.cpp          |  1 +
+ src/ui/android_window.cpp | 92 +++++++++++++++++++++++++++++++++++++++
+ src/ui/android_window.hpp |  5 +++
+ 3 files changed, 98 insertions(+)
+
+diff --git a/src/app/main.cpp b/src/app/main.cpp
+index 15909f2..306627d 100644
+--- a/src/app/main.cpp
++++ b/src/app/main.cpp
+@@ -810,6 +810,7 @@ int main(int argc, char* argv[]) {
+   patchy::ui::android_window::put_menu_bar_in_caption(window);
+   patchy::ui::android_window::show_document_names_in_status_bar(window);
+   patchy::ui::android_window::route_gestures_to_widgets();
++  patchy::ui::android_window::add_appearance_menu(window);
+ #endif
+   window.show();
+   if (stress_mode) {
+diff --git a/src/ui/android_window.cpp b/src/ui/android_window.cpp
+index 38848a7..e846822 100644
+--- a/src/ui/android_window.cpp
++++ b/src/ui/android_window.cpp
+@@ -9,7 +9,11 @@
+ #include <QEvent>
+ #include <QJniEnvironment>
+ #include <QJniObject>
++#include <QActionGroup>
+ #include <QApplication>
++#include <QMenu>
++#include <QPainter>
++#include <QPainterPath>
+ #include <QMainWindow>
+ #include <QNativeGestureEvent>
+ #include <QPointingDevice>
+@@ -136,6 +140,7 @@ class CaptionMenuBar final : public QObject {
+   QString applied_;
+ };
+ 
++
+ // Window pixels from Java to a logical point on the main window's screen.
+ QPointF logical_point(float x, float y) {
+   const QWidget* window = QApplication::activeWindow();
+@@ -187,6 +192,93 @@ void JNICALL java_pan(JNIEnv*, jclass, jfloat x, jfloat y, jfloat dx, jfloat dy)
+ 
+ }  // namespace
+ 
++namespace {
++
++QIcon appearance_icon(ColorSchemePreference preference, const QColor& color, double ratio) {
++  const int size = 20;
++  QPixmap pixmap(QSize(size, size) * ratio);
++  pixmap.setDevicePixelRatio(ratio);
++  pixmap.fill(Qt::transparent);
++  QPainter painter(&pixmap);
++  painter.setRenderHint(QPainter::Antialiasing);
++  painter.setPen(QPen(color, 1.6, Qt::SolidLine, Qt::RoundCap));
++  const QPointF center(size / 2.0, size / 2.0);
++  switch (preference) {
++    case ColorSchemePreference::Light: {
++      painter.setBrush(color);
++      painter.drawEllipse(center, 3.6, 3.6);
++      for (int i = 0; i < 8; ++i) {
++        const double angle = i * M_PI / 4.0;
++        painter.drawLine(center + QPointF(std::cos(angle), std::sin(angle)) * 6.2,
++                         center + QPointF(std::cos(angle), std::sin(angle)) * 8.4);
++      }
++      break;
++    }
++    case ColorSchemePreference::Dark: {
++      QPainterPath moon;
++      moon.addEllipse(center, 7.0, 7.0);
++      QPainterPath bite;
++      bite.addEllipse(center + QPointF(3.8, -3.0), 5.8, 5.8);
++      painter.setPen(Qt::NoPen);
++      painter.setBrush(color);
++      painter.drawPath(moon.subtracted(bite));
++      break;
++    }
++    case ColorSchemePreference::FollowSystem: {
++      painter.setBrush(Qt::NoBrush);
++      painter.drawEllipse(center, 7.0, 7.0);
++      QPainterPath half;
++      half.moveTo(center + QPointF(0, -7.0));
++      half.arcTo(QRectF(center - QPointF(7.0, 7.0), QSizeF(14.0, 14.0)), 90, 180);
++      half.closeSubpath();
++      painter.setPen(Qt::NoPen);
++      painter.setBrush(color);
++      painter.drawPath(half);
++      break;
++    }
++  }
++  return QIcon(pixmap);
++}
++
++}  // namespace
++
++void add_appearance_menu(QMainWindow& window) {
++  auto* bar = window.menuBar();
++  auto* menu = new QMenu(bar);
++  menu->setObjectName(QStringLiteral("canvasAppearanceMenu"));
++  auto* group = new QActionGroup(menu);
++  struct Choice {
++    const char* label;
++    ColorSchemePreference preference;
++  };
++  for (const auto& choice : {Choice{"Auto (follow the system)", ColorSchemePreference::FollowSystem},
++                             Choice{"Light", ColorSchemePreference::Light},
++                             Choice{"Dark", ColorSchemePreference::Dark}}) {
++    auto* action = menu->addAction(QString::fromLatin1(choice.label));
++    action->setCheckable(true);
++    action->setData(static_cast<int>(choice.preference));
++    group->addAction(action);
++    QObject::connect(action, &QAction::triggered, menu, [preference = choice.preference] {
++      ThemeManager::instance().set_preference(preference, /*persist=*/true);
++    });
++  }
++  auto* menu_action = bar->addMenu(menu);
++  menu_action->setObjectName(QStringLiteral("canvasAppearanceMenuAction"));
++  menu_action->setToolTip(QStringLiteral("Appearance: Auto, Light or Dark"));
++  const auto refresh = [bar, group, menu_action] {
++    const auto current = ThemeManager::instance().preference();
++    for (auto* action : group->actions()) {
++      action->setChecked(action->data().toInt() == static_cast<int>(current));
++    }
++    menu_action->setIcon(appearance_icon(current, theme().text_bright, bar->devicePixelRatio()));
++  };
++  refresh();
++  QObject::connect(menu, &QMenu::aboutToShow, menu, refresh);
++  QObject::connect(group, &QActionGroup::triggered, menu, [refresh] { QTimer::singleShot(0, refresh); });
++  QObject::connect(&ThemeManager::instance(), &ThemeManager::color_scheme_changed, menu,
++                   [refresh] { QTimer::singleShot(0, refresh); });
++}
++
+ void route_gestures_to_widgets() {
+   const JNINativeMethod methods[] = {
+       {"nativeZoom", "(FFF)V", reinterpret_cast<void*>(java_zoom)},
+diff --git a/src/ui/android_window.hpp b/src/ui/android_window.hpp
+index 5c4ee6f..b42dfe6 100644
+--- a/src/ui/android_window.hpp
++++ b/src/ui/android_window.hpp
+@@ -23,6 +23,11 @@ void put_menu_bar_in_caption(QMainWindow& window);
+ // photo.psd").
+ void show_document_names_in_status_bar(QMainWindow& window);
+ 
++// An Appearance menu at the end of the menu bar: an icon showing the current
++// mode (sun, moon, or half-filled for Auto) that opens Auto / Light / Dark,
++// the same setting as Preferences > Color scheme.
++void add_appearance_menu(QMainWindow& window);
++
+ // Pinch and pan from CanvasGestures (Java): trackpad pinches and two-finger
+ // touchscreen gestures become Patchy's native zoom gesture (as macOS trackpads
+ // send) and pixel-delta wheel events (a pan) on the widget under the fingers.

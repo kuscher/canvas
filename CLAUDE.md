@@ -45,8 +45,24 @@ with Qt for Android, for Googlebooks. Plan and decisions: docs/PLAN.md. Research
 - Deployment pulls Qt Quick in via the qmltooling plugins (about 11 MB per ABI);
   `qt_import_plugins` doesn't affect Android deployment. Not fixed yet.
 - Qt PDF isn't published for Android: PDF import is the stub (export works).
+- Every Qt top-level window (each menu, each combo popup) is a view in the activity's layout;
+  popups draw in TextureViews over the main window's SurfaceView, so a popup behind the main
+  window's view is open but invisible. Switching menus along the menu bar raised the main window
+  over the new menu; `keep_popups_in_front()` (android_window.cpp) raises open popups again.
+- The system caption over the menu bar sometimes cancels a mouse or trackpad press right after
+  it lands (ACTION_CANCEL). Qt for Android ignores mouse cancels and would keep the button held
+  and its pointer grab; `CanvasActivity.dispatchTouchEvent` turns such a cancel into a release.
+- The HP's touchpad sends mouse-source events with a finger tool type, which Qt for Android
+  routes through its touch path (clicks become touches); a real mouse goes the mouse path.
 
 ## Device
 
 HP Googlebook 14 (arm64, user 10), adb over Wireless debugging; ASUS Googlebook 14 for x86_64.
 `./cv install|start|stop|logs|shot`. Never run emulators on this VM (CI only).
+
+Input for tests: `input touchscreen tap/swipe/motionevent` works; `input mouse` doesn't. For
+hover and real clicks, register a relative mouse with `adb shell uinput -` (JSON commands on
+stdin, kept open through a FIFO) and find the pointer by diffing two screenshots around a small
+move (screencap includes the pointer; slow moves travel about 4.4 px per count). Never park the
+pointer in a screen corner: the top-left corner opens Overview. Close a menu by choosing an
+item or tapping clear of it; a "tap outside" can land on an item of a menu that is open.

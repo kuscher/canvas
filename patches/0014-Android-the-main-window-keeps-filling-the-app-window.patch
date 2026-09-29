@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Alexander <4418484+kuscher@users.noreply.github.com>
 Date: Tue, 29 Sep 2026 13:43:33 +0000
-Subject: [PATCH 14/15] Android: the main window keeps filling the app window
+Subject: [PATCH 14/17] Android: the main window keeps filling the app window
 
 Dragging the window by its caption makes Qt for Android drop the main window
 to the normal state, where it shrinks to its normal size and floats inside

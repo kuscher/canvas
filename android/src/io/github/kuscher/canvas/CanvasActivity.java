@@ -8,6 +8,7 @@ import android.os.Build;
 import android.content.res.Configuration;
 import android.os.Bundle;
 import android.util.Log;
+import android.view.InputDevice;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewTreeObserver;
@@ -78,6 +79,19 @@ public class CanvasActivity extends QtActivity {
 
     @Override
     public boolean dispatchTouchEvent(MotionEvent event) {
+        if (event.getActionMasked() == MotionEvent.ACTION_CANCEL && event.isFromSource(InputDevice.SOURCE_MOUSE)) {
+            // The desktop caption over the menu bar can take the pointer right
+            // after a mouse or trackpad button goes down on it (it may become
+            // a window drag), so the menu bar sees its press cancelled. Qt for
+            // Android drops mouse cancels and would keep the button held,
+            // sending every later pointer move to the pressed window: end the
+            // press where it began instead.
+            MotionEvent up = MotionEvent.obtain(event);
+            up.setAction(MotionEvent.ACTION_UP);
+            boolean handled = gestures.onTouch(up) || super.dispatchTouchEvent(up);
+            up.recycle();
+            return handled;
+        }
         return gestures.onTouch(event) || super.dispatchTouchEvent(event);
     }
 

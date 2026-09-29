@@ -1,0 +1,137 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Alexander <4418484+kuscher@users.noreply.github.com>
+Date: Tue, 29 Sep 2026 15:54:20 +0000
+Subject: [PATCH 17/17] Android: keep menus in front when moving between them
+
+Qt for Android stacks its windows as views in the activity. Moving
+from one open menu to the next along the menu bar closes the old menu
+first, which hands focus back to the main window, and Qt then raises
+the main window over the menu that just opened: the menu is open but
+out of sight. Raise the open popups again, in the order they opened,
+whenever one opens or closes or another window becomes active.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/app/main.cpp          |  1 +
+ src/ui/android_window.cpp | 63 +++++++++++++++++++++++++++++++++++++++
+ src/ui/android_window.hpp |  7 +++++
+ 3 files changed, 71 insertions(+)
+
+diff --git a/src/app/main.cpp b/src/app/main.cpp
+index 306627d..ba35cab 100644
+--- a/src/app/main.cpp
++++ b/src/app/main.cpp
+@@ -810,6 +810,7 @@ int main(int argc, char* argv[]) {
+   patchy::ui::android_window::put_menu_bar_in_caption(window);
+   patchy::ui::android_window::show_document_names_in_status_bar(window);
+   patchy::ui::android_window::route_gestures_to_widgets();
++  patchy::ui::android_window::keep_popups_in_front();
+   patchy::ui::android_window::add_appearance_menu(window);
+ #endif
+   window.show();
+diff --git a/src/ui/android_window.cpp b/src/ui/android_window.cpp
+index e846822..da8fb15 100644
+--- a/src/ui/android_window.cpp
++++ b/src/ui/android_window.cpp
+@@ -24,6 +24,7 @@
+ #include <QStatusBar>
+ #include <QTimer>
+ #include <QScreen>
++#include <QWindow>
+ 
+ #include <array>
+ #include <cmath>
+@@ -141,6 +142,64 @@ class CaptionMenuBar final : public QObject {
+ };
+ 
+ 
++// Popups that are open, in the order they opened, raised again whenever one
++// opens or closes or another window becomes active.
++class PopupStack final : public QObject {
++ public:
++  using QObject::QObject;
++
++ protected:
++  bool eventFilter(QObject* watched, QEvent* event) override {
++    if (!watched->isWidgetType()) {
++      return false;
++    }
++    auto* widget = static_cast<QWidget*>(watched);
++    switch (event->type()) {
++      case QEvent::Show:
++      case QEvent::Hide:
++        if (widget->windowType() == Qt::Popup) {
++          open_.removeAll(widget);
++          if (event->type() == QEvent::Show) {
++            open_.append(widget);
++          }
++          schedule();
++        }
++        break;
++      case QEvent::WindowActivate:
++        if (widget->isWindow() && widget->windowType() != Qt::Popup && QApplication::activePopupWidget()) {
++          schedule();
++        }
++        break;
++      default:
++        break;
++    }
++    return false;
++  }
++
++ private:
++  void schedule() {
++    if (!pending_) {
++      pending_ = true;
++      QTimer::singleShot(0, this, [this] {
++        pending_ = false;
++        raise_open();
++      });
++    }
++  }
++
++  void raise_open() {
++    open_.removeIf([](const QPointer<QWidget>& popup) { return popup.isNull() || !popup->isVisible(); });
++    for (const auto& popup : std::as_const(open_)) {
++      if (auto* handle = popup->windowHandle()) {
++        handle->raise();
++      }
++    }
++  }
++
++  QList<QPointer<QWidget>> open_;
++  bool pending_ = false;
++};
++
+ // Window pixels from Java to a logical point on the main window's screen.
+ QPointF logical_point(float x, float y) {
+   const QWidget* window = QApplication::activeWindow();
+@@ -279,6 +338,10 @@ void add_appearance_menu(QMainWindow& window) {
+                    [refresh] { QTimer::singleShot(0, refresh); });
+ }
+ 
++void keep_popups_in_front() {
++  qApp->installEventFilter(new PopupStack(qApp));
++}
++
+ void route_gestures_to_widgets() {
+   const JNINativeMethod methods[] = {
+       {"nativeZoom", "(FFF)V", reinterpret_cast<void*>(java_zoom)},
+diff --git a/src/ui/android_window.hpp b/src/ui/android_window.hpp
+index b42dfe6..457a9af 100644
+--- a/src/ui/android_window.hpp
++++ b/src/ui/android_window.hpp
+@@ -33,6 +33,13 @@ void add_appearance_menu(QMainWindow& window);
+ // send) and pixel-delta wheel events (a pan) on the widget under the fingers.
+ void route_gestures_to_widgets();
+ 
++// Keeps open menus and other popups in front. Qt for Android stacks its
++// windows as views in the activity, and moving from one open menu to the next
++// (hovering along the menu bar) hands focus back to the main window, which Qt
++// then raises over the menu that just opened. Raises the open popups again,
++// in the order they opened.
++void keep_popups_in_front();
++
+ // File > Print: writes the page as a PDF (write_print_pdf) on the locale's
+ // paper (A4, or Letter where inches rule), turned to the document's
+ // orientation, and opens Android's print dialog with it. Returns false when

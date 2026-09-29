@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Alexander <4418484+kuscher@users.noreply.github.com>
 Date: Tue, 29 Sep 2026 07:00:09 +0000
-Subject: [PATCH 08/15] Android: the build's credit and licences in About
+Subject: [PATCH 08/17] Android: the build's credit and licences in About
 
 The About dialog names the Android build and links its source and a
 Licenses viewer for the notices the build embeds
