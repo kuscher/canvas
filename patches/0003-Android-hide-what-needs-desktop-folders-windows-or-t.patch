@@ -1,0 +1,136 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Alexander <4418484+kuscher@users.noreply.github.com>
+Date: Tue, 29 Sep 2026 06:50:29 +0000
+Subject: [PATCH 3/5] Android: hide what needs desktop folders, windows or the
+ network
+
+Open Folder, Open Recent Folder, folder exports and Open in File Explorer
+(Android hands out single documents), floating document windows (Qt on
+Android draws every window inside the app window), page setup and print (no
+Android backend for Qt's print dialogs yet), AI control setup, the update
+check (the app has no network access) and script sounds (they run a desktop
+audio program). Actions stay registered, as on the web build.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/app/main.cpp                     |  4 ++++
+ src/ui/main_window_actions_menus.cpp | 23 +++++++++++++++++++++--
+ src/ui/main_window_files.cpp         | 12 +++++++++++-
+ src/ui/main_window_preferences.cpp   |  4 ++++
+ 4 files changed, 40 insertions(+), 3 deletions(-)
+
+diff --git a/src/app/main.cpp b/src/app/main.cpp
+index e727b28..8b381fe 100644
+--- a/src/app/main.cpp
++++ b/src/app/main.cpp
+@@ -377,6 +377,10 @@ int main(int argc, char* argv[]) {
+ #endif
+   apply_gui_scale_factor();
+ #ifdef Q_OS_ANDROID
++  // Script sound effects play through a desktop audio program (sound_effects.cpp).
++  if (!qEnvironmentVariableIsSet("PATCHY_NO_SOUND")) {
++    qputenv("PATCHY_NO_SOUND", "1");
++  }
+   // Keep Patchy's own menu bar. Qt on Android otherwise moves QMenuBar into the
+   // Android options menu, which a desktop window doesn't show.
+   QCoreApplication::setAttribute(Qt::AA_DontUseNativeMenuBar);
+diff --git a/src/ui/main_window_actions_menus.cpp b/src/ui/main_window_actions_menus.cpp
+index df96af5..6a8feb7 100644
+--- a/src/ui/main_window_actions_menus.cpp
++++ b/src/ui/main_window_actions_menus.cpp
+@@ -445,6 +445,16 @@ void MainWindow::build_menu_bar_actions(ActionBuildContext& ctx) {
+   open_folder_action->setVisible(false);
+   page_setup_action->setVisible(false);
+   print_action->setVisible(false);
++#elif defined(Q_OS_ANDROID)
++  // Android hands out single documents through the system picker, not folders
++  // to read or write into (dialog_utils_android.cpp), and Qt's print dialogs
++  // have no Android backend. The actions stay registered like on wasm.
++  export_image_sequence_action->setVisible(false);
++  export_documents_folder_action->setVisible(false);
++  open_folder_action->setVisible(false);
++  recent_folders_menu_->menuAction()->setVisible(false);
++  page_setup_action->setVisible(false);
++  print_action->setVisible(false);
+ #endif
+   file_menu->addSeparator();
+   // File > Scripts: static entries here (hotkeys register once); the script
+@@ -1823,6 +1833,15 @@ void MainWindow::build_menu_bar_actions(ActionBuildContext& ctx) {
+   consolidate_tabs_action_->setVisible(false);
+   tile_windows_action_->setVisible(false);
+   cascade_windows_action_->setVisible(false);
++#elif defined(Q_OS_ANDROID)
++  // Qt on Android draws every window inside the one app window, so floating
++  // documents would only float inside it; the system sizes the window.
++  float_document_action_->setVisible(false);
++  dock_document_action_->setVisible(false);
++  float_all_action_->setVisible(false);
++  consolidate_tabs_action_->setVisible(false);
++  tile_windows_action_->setVisible(false);
++  cascade_windows_action_->setVisible(false);
+ #endif
+ 
+   window_menu->addSeparator();
+@@ -1876,8 +1895,8 @@ void MainWindow::build_menu_bar_actions(ActionBuildContext& ctx) {
+   ai_setup_action->setMenuRole(QAction::NoRole);
+   register_hotkey(ai_setup_action, "help.ai_setup");
+   connect(ai_setup_action, &QAction::triggered, this, [this] { open_ai_setup_dialog(); });
+-#ifdef Q_OS_WASM
+-  // The browser build ships no connector; hide the entry but keep the command id
++#if defined(Q_OS_WASM) || defined(Q_OS_ANDROID)
++  // The browser and Android builds ship no connector; hide the entry but keep the command id
+   // registered so saved hotkey tables stay stable across platforms.
+   ai_setup_action->setVisible(false);
+ #endif
+diff --git a/src/ui/main_window_files.cpp b/src/ui/main_window_files.cpp
+index b6e110d..c17025a 100644
+--- a/src/ui/main_window_files.cpp
++++ b/src/ui/main_window_files.cpp
+@@ -4043,7 +4043,8 @@ void MainWindow::show_update_available(const UpdateInfo& update) {
+ }
+ 
+ void MainWindow::begin_startup_update_check() {
+-#ifdef Q_OS_WASM
++#if defined(Q_OS_WASM) || defined(Q_OS_ANDROID)
++  // Android: the app has no network access; updates come as new APKs.
+   // The web build updates by redeploying the site; the GitHub manifest fetch
+   // would only fail CORS and surface a network error on the start panel.
+   return;
+@@ -4536,6 +4537,9 @@ void MainWindow::show_recent_path_context_menu(QWidget* parent, QMenu* source_me
+   });
+ 
+   auto* open_in_explorer_action = context_menu.addAction(tr("Open in File Explorer"));
++#ifdef Q_OS_ANDROID
++  open_in_explorer_action->setVisible(false);
++#endif
+   open_in_explorer_action->setObjectName(is_folder ? QStringLiteral("recentFolderOpenInExplorerAction")
+                                                    : QStringLiteral("recentFileOpenInExplorerAction"));
+   connect(open_in_explorer_action, &QAction::triggered, this, [this, close_menus, is_folder, path] {
+@@ -4547,6 +4551,12 @@ void MainWindow::show_recent_path_context_menu(QWidget* parent, QMenu* source_me
+ }
+ 
+ void MainWindow::reveal_path_in_file_explorer(const QString& path, bool is_file) {
++#ifdef Q_OS_ANDROID
++  // Working copies live in the app's private storage; there is no folder to show.
++  Q_UNUSED(path);
++  Q_UNUSED(is_file);
++  return;
++#endif
+   const QFileInfo info(path);
+   if (is_file) {
+     if (!info.exists()) {
+diff --git a/src/ui/main_window_preferences.cpp b/src/ui/main_window_preferences.cpp
+index f10c466..c0d483a 100644
+--- a/src/ui/main_window_preferences.cpp
++++ b/src/ui/main_window_preferences.cpp
+@@ -505,6 +505,10 @@ void MainWindow::show_preferences() {
+   update_check->setObjectName(QStringLiteral("preferencesCheckForUpdatesCheck"));
+   update_check->setChecked(settings.value(QStringLiteral("updates/checkOnStartup"), true).toBool());
+   application_form->addRow(update_check);
++#ifdef Q_OS_ANDROID
++  // No network access, so nothing to check.
++  application_form->setRowVisible(update_check, false);
++#endif
+   // Automatic document recovery (docs/document-recovery.md): a checkbox and the
+   // interval combo on one row, the way Photoshop's File Handling page lays it out.
+   auto* recovery_row = new QWidget(application_group);

@@ -1,0 +1,106 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Alexander <4418484+kuscher@users.noreply.github.com>
+Date: Tue, 29 Sep 2026 06:53:38 +0000
+Subject: [PATCH 5/5] Android: caption bar in the menu bar's color
+
+In a desktop window the system tints the caption bar from the wallpaper.
+Canvas's activity makes it transparent over the menu bar's color
+(title_bar_bg), and follows the light or dark scheme.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ CMakeLists.txt            |  2 ++
+ src/app/main.cpp          |  4 ++++
+ src/ui/android_window.cpp | 28 ++++++++++++++++++++++++++++
+ src/ui/android_window.hpp | 12 ++++++++++++
+ 4 files changed, 46 insertions(+)
+ create mode 100644 src/ui/android_window.cpp
+ create mode 100644 src/ui/android_window.hpp
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 3bc9b8d..edbac9b 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -1200,6 +1200,8 @@ ${PATCHY_LUPDATE_MANIFEST_SOURCES}
+     # content:// documents, copied in and out of working copies.
+     if(ANDROID)
+       target_sources(patchy_ui PRIVATE
++        src/ui/android_window.hpp
++        src/ui/android_window.cpp
+         src/ui/dialog_utils_android.hpp
+         src/ui/dialog_utils_android.cpp
+       )
+diff --git a/src/app/main.cpp b/src/app/main.cpp
+index 1704122..5b5cb06 100644
+--- a/src/app/main.cpp
++++ b/src/app/main.cpp
+@@ -11,6 +11,7 @@
+ #include "ui/script_engine.hpp"
+ #include "ui/single_instance.hpp"
+ #ifdef Q_OS_ANDROID
++#include "ui/android_window.hpp"
+ #include "ui/dialog_utils_android.hpp"
+ #endif
+ #include "ui/psd_font_resolver.hpp"
+@@ -437,6 +438,9 @@ int main(int argc, char* argv[]) {
+   // After the language: on wasm the app font's CJK fallback order depends on it.
+   app.setFont(application_font());
+   patchy::ui::ThemeManager::instance().load_saved_preference();
++#ifdef Q_OS_ANDROID
++  patchy::ui::android_window::follow_theme_in_caption_bar();
++#endif
+ 
+ #ifdef PATCHY_MCP_EXECUTABLE
+   if (connector_settings.isValid()) { return patchy::run_mcp_server(app); }
+diff --git a/src/ui/android_window.cpp b/src/ui/android_window.cpp
+new file mode 100644
+index 0000000..3479a76
+--- /dev/null
++++ b/src/ui/android_window.cpp
+@@ -0,0 +1,28 @@
++#include "ui/android_window.hpp"
++
++#include "ui/theme_manager.hpp"
++#include "ui/theme_palette.hpp"
++
++#include <QCoreApplication>
++#include <QJniObject>
++
++namespace patchy::ui::android_window {
++namespace {
++
++void push_caption_color(ColorScheme scheme) {
++  const auto color = theme(scheme).title_bar_bg;
++  QJniObject::callStaticMethod<void>("io/github/kuscher/canvas/CanvasActivity", "setCaptionColor", "(IZ)V",
++                                     static_cast<jint>(color.rgba()),
++                                     static_cast<jboolean>(color.lightness() < 128));
++}
++
++}  // namespace
++
++void follow_theme_in_caption_bar() {
++  auto& themes = ThemeManager::instance();
++  push_caption_color(themes.resolved_scheme());
++  QObject::connect(&themes, &ThemeManager::color_scheme_changed, qApp,
++                   [](ColorScheme scheme) { push_caption_color(scheme); });
++}
++
++}  // namespace patchy::ui::android_window
+diff --git a/src/ui/android_window.hpp b/src/ui/android_window.hpp
+new file mode 100644
+index 0000000..05bd73b
+--- /dev/null
++++ b/src/ui/android_window.hpp
+@@ -0,0 +1,12 @@
++#pragma once
++
++// Desktop-window details of the Android build that live in Canvas's activity
++// (io.github.kuscher.canvas.CanvasActivity), driven from here.
++namespace patchy::ui::android_window {
++
++// Keeps the system caption bar above the window in the menu bar's color
++// (title_bar_bg), following the light or dark scheme. Call once after the
++// saved scheme is loaded.
++void follow_theme_in_caption_bar();
++
++}  // namespace patchy::ui::android_window

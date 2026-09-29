@@ -10,6 +10,7 @@ import android.provider.OpenableColumns;
 import android.util.Log;
 
 import java.io.File;
+import java.util.ArrayList;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
@@ -39,6 +40,38 @@ public final class CanvasFiles {
         }
         String last = Uri.parse(uri).getLastPathSegment();
         return last == null ? null : last.substring(last.lastIndexOf('/') + 1);
+    }
+
+    /**
+     * The documents an intent asks Canvas to open: "Open with" (VIEW, EDIT) or "Share"
+     * (SEND, SEND_MULTIPLE). Empty when the activity was relaunched from Recents, so a
+     * document isn't opened a second time.
+     */
+    @SuppressWarnings("deprecation") // the typed getParcelable*Extra overloads need API 33
+    public static String[] documentUris(Intent intent) {
+        ArrayList<String> uris = new ArrayList<>();
+        if (intent == null || (intent.getFlags() & Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) != 0) {
+            return new String[0];
+        }
+        String action = intent.getAction();
+        if (Intent.ACTION_VIEW.equals(action) || Intent.ACTION_EDIT.equals(action)) {
+            if (intent.getData() != null) {
+                uris.add(intent.getData().toString());
+            }
+        } else if (Intent.ACTION_SEND.equals(action)) {
+            Uri stream = intent.getParcelableExtra(Intent.EXTRA_STREAM);
+            if (stream != null) {
+                uris.add(stream.toString());
+            }
+        } else if (Intent.ACTION_SEND_MULTIPLE.equals(action)) {
+            ArrayList<Uri> streams = intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM);
+            if (streams != null) {
+                for (Uri u : streams) {
+                    uris.add(u.toString());
+                }
+            }
+        }
+        return uris.toArray(new String[0]);
     }
 
     /** Keeps read (and, where granted, write) access across restarts, for recent files and Save. */

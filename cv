@@ -25,7 +25,7 @@ C=${CANVAS_CACHE:-$HOME/.cache/canvas}
 KEYS=${CANVAS_KEYS:-$HOME/.config/canvas}
 SRC=$C/patchy
 PKG=io.github.kuscher.canvas
-ACTIVITY=org.qtproject.qt.android.bindings.QtActivity
+ACTIVITY=io.github.kuscher.canvas.CanvasActivity
 SDK=${ANDROID_SDK_ROOT:-$HOME/Android/Sdk}
 die() { echo "cv: $*" >&2; exit 1; }
 

@@ -1,0 +1,186 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Alexander <4418484+kuscher@users.noreply.github.com>
+Date: Tue, 29 Sep 2026 06:52:09 +0000
+Subject: [PATCH 4/5] Android: open documents sent with "Open with" and "Share"
+
+The launch intent's documents join the startup batch like command-line
+files, and documents sent to the running app open like a second-instance
+request (QtAndroidPrivate's new-intent listener). URIs are read on the
+Android UI thread and copied into working copies on the GUI thread.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ CMakeLists.txt                  |  3 ++
+ src/app/main.cpp                | 10 +++++
+ src/ui/dialog_utils_android.cpp | 73 +++++++++++++++++++++++++++++++++
+ src/ui/dialog_utils_android.hpp | 10 +++++
+ 4 files changed, 96 insertions(+)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index e2b19c1..3bc9b8d 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -1203,6 +1203,9 @@ ${PATCHY_LUPDATE_MANIFEST_SOURCES}
+         src/ui/dialog_utils_android.hpp
+         src/ui/dialog_utils_android.cpp
+       )
++      # QtAndroidPrivate: the activity and its new intents ("Open with").
++      find_package(Qt6 REQUIRED COMPONENTS CorePrivate)
++      target_link_libraries(patchy_ui PRIVATE Qt6::CorePrivate)
+     endif()
+     # Same swap for the optional Qt PDF add-on: the real importer where the module exists,
+     # the stub (which reports PDF opening as unavailable) everywhere else. PDF EXPORT is
+diff --git a/src/app/main.cpp b/src/app/main.cpp
+index 8b381fe..1704122 100644
+--- a/src/app/main.cpp
++++ b/src/app/main.cpp
+@@ -10,6 +10,9 @@
+ #include "ui/mcp_attachment.hpp"
+ #include "ui/script_engine.hpp"
+ #include "ui/single_instance.hpp"
++#ifdef Q_OS_ANDROID
++#include "ui/dialog_utils_android.hpp"
++#endif
+ #include "ui/psd_font_resolver.hpp"
+ #include "ui/stress_test.hpp"
+ #include "ui/theme_manager.hpp"
+@@ -773,6 +776,13 @@ int main(int argc, char* argv[]) {
+   };
+   files += app.pending_file_opens;
+   app.pending_file_opens.clear();
++#ifdef Q_OS_ANDROID
++  // "Open with Canvas" and "Share": the launch intent's documents join the batch,
++  // and documents sent to the running app open like a second-instance request.
++  files += patchy::ui::android_files::take_launch_documents();
++  patchy::ui::android_files::watch_new_documents(
++      [&window](const QStringList& paths) { window.activate_for_second_instance(paths); });
++#endif
+ 
+ #ifndef Q_OS_WASM
+   // Documents a crashed instance left recovery copies of come back first, as
+diff --git a/src/ui/dialog_utils_android.cpp b/src/ui/dialog_utils_android.cpp
+index fd12cef..30a19e0 100644
+--- a/src/ui/dialog_utils_android.cpp
++++ b/src/ui/dialog_utils_android.cpp
+@@ -3,6 +3,7 @@
+ #include "ui/dialog_utils.hpp"
+ 
+ #include <QCoreApplication>
++#include <QtCore/private/qjnihelpers_p.h>
+ #include <QCryptographicHash>
+ #include <QDir>
+ #include <QFile>
+@@ -53,6 +54,55 @@ bool java_copy_from_file(const QString& path, const QString& uri) {
+       android_context().object(), jstring_of(path).object<jstring>(), jstring_of(uri).object<jstring>());
+ }
+ 
++QStringList document_uris_of(const QJniObject& intent) {
++  const auto array = QJniObject::callStaticObjectMethod(kJavaFiles, "documentUris",
++                                                        "(Landroid/content/Intent;)[Ljava/lang/String;",
++                                                        intent.object());
++  QStringList uris;
++  if (!array.isValid()) {
++    return uris;
++  }
++  QJniEnvironment env;
++  const auto strings = static_cast<jobjectArray>(array.object());
++  const auto count = env->GetArrayLength(strings);
++  for (jsize i = 0; i < count; ++i) {
++    const QJniObject item(env->GetObjectArrayElement(strings, i));
++    uris.push_back(item.toString());
++  }
++  return uris;
++}
++
++QStringList import_documents(const QStringList& uris) {
++  QStringList paths;
++  for (const auto& uri : uris) {
++    if (const auto path = import_document(uri); !path.isEmpty()) {
++      paths.push_back(path);
++    } else {
++      show_critical_message(nullptr, QStringLiteral("Open"),
++                            QStringLiteral("Canvas could not read \"%1\".").arg(java_display_name(uri)),
++                            QStringLiteral("androidOpenFailedMessageBox"));
++    }
++  }
++  return paths;
++}
++
++class NewDocumentListener final : public QtAndroidPrivate::NewIntentListener {
++ public:
++  std::function<void(const QStringList&)> open;
++
++  // Runs on the Android UI thread: read the URIs here, copy and open on the GUI thread.
++  bool handleNewIntent(JNIEnv* /*env*/, jobject intent) override {
++    const auto uris = document_uris_of(QJniObject(intent));
++    if (uris.isEmpty() || !open) {
++      return false;
++    }
++    QMetaObject::invokeMethod(
++        qApp, [uris, open = open] { if (const auto paths = import_documents(uris); !paths.isEmpty()) open(paths); },
++        Qt::QueuedConnection);
++    return true;
++  }
++};
++
+ QString documents_root() {
+   return QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + QStringLiteral("/documents");
+ }
+@@ -181,6 +231,29 @@ QString pick_save_file(QWidget* parent, const QString& caption, const QString& i
+   return working_copy_for(uri, name);
+ }
+ 
++QStringList take_launch_documents() {
++  static bool taken = false;
++  if (taken) {
++    return {};
++  }
++  taken = true;
++  const QJniObject activity = QtAndroidPrivate::activity();
++  if (!activity.isValid()) {
++    return {};
++  }
++  const auto intent = activity.callObjectMethod("getIntent", "()Landroid/content/Intent;");
++  return intent.isValid() ? import_documents(document_uris_of(intent)) : QStringList();
++}
++
++void watch_new_documents(std::function<void(const QStringList&)> open) {
++  static NewDocumentListener listener;
++  const bool first = !listener.open;
++  listener.open = std::move(open);
++  if (first) {
++    QtAndroidPrivate::registerNewIntentListener(&listener);
++  }
++}
++
+ bool is_working_copy(const QString& path) {
+   return !document_uri_for(path).isEmpty();
+ }
+diff --git a/src/ui/dialog_utils_android.hpp b/src/ui/dialog_utils_android.hpp
+index 9e17fef..dbbb603 100644
+--- a/src/ui/dialog_utils_android.hpp
++++ b/src/ui/dialog_utils_android.hpp
+@@ -3,6 +3,8 @@
+ #include <QString>
+ #include <QStringList>
+ 
++#include <functional>
++
+ class QWidget;
+ 
+ // Document access for the Android build. dialog_utils.cpp delegates its file
+@@ -41,6 +43,14 @@ namespace patchy::ui::android_files {
+ // otherwise.
+ void refresh_working_copy(const QString& path);
+ 
++// The documents the app was launched to open ("Open with Canvas", "Share"),
++// as working copies. Returns them once per process.
++[[nodiscard]] QStringList take_launch_documents();
++
++// Calls open (on the GUI thread) with the working copies of documents sent to
++// the running app.
++void watch_new_documents(std::function<void(const QStringList&)> open);
++
+ // Copies a freshly saved working copy back to its document. Returns false
+ // after telling the user when the document can't be written; true for paths
+ // that aren't working copies.
