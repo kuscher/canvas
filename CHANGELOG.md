@@ -22,6 +22,4 @@ Googlebook.
   back the next time you open it.
 - **No internet permission,** no accounts, no tracking.
 
-Known limitations: opening PDFs isn't available (Qt's PDF module isn't published for Android;
-exporting PDFs works); screen readers can't read Canvas yet; in a full-screen window the menu bar
-overlaps the system's app header.
+What's next: see the [to-do list](https://github.com/kuscher/canvas#to-do).
