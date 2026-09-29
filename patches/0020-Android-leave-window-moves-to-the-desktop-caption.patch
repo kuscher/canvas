@@ -1,0 +1,38 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Alexander <4418484+kuscher@users.noreply.github.com>
+Date: Tue, 29 Sep 2026 16:22:31 +0000
+Subject: [PATCH 20/20] Android: leave window moves to the desktop caption
+
+Patchy's menu bar doubles as a title bar on frameless desktop windows:
+pressing on its empty space restores a maximized window under the
+pointer and starts a move, and a double-click toggles maximize. On
+Android the menu bar sits under the system caption, which moves and
+maximizes the window itself, so each press there shrank the main window
+to its normal size inside the app window until it was put back (a
+visible flash). Treat no part of the menu bar as a drag area there.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/ui/main_window.cpp | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/src/ui/main_window.cpp b/src/ui/main_window.cpp
+index 150ba10..887c0eb 100644
+--- a/src/ui/main_window.cpp
++++ b/src/ui/main_window.cpp
+@@ -7816,6 +7816,15 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
+     }
+ 
+     const auto is_chrome_drag_area = [this, bar](const QPoint& position) {
++#ifdef Q_OS_ANDROID
++      // The desktop caption over the menu bar moves and maximizes the window
++      // itself; restoring the main window here would shrink it inside the app
++      // window.
++      Q_UNUSED(this);
++      Q_UNUSED(bar);
++      Q_UNUSED(position);
++      return false;
++#endif
+       if (bar->actionAt(position) != nullptr) {
+         return false;
+       }

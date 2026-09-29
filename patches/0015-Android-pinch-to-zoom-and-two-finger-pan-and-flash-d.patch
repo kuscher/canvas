@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Alexander <4418484+kuscher@users.noreply.github.com>
 Date: Tue, 29 Sep 2026 15:31:08 +0000
-Subject: [PATCH 15/19] Android: pinch to zoom and two-finger pan, and flash
+Subject: [PATCH 15/20] Android: pinch to zoom and two-finger pan, and flash
  diagnostics
 
 CanvasGestures (Java) turns trackpad pinches (CLASSIFICATION_PINCH) and

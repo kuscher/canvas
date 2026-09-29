@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Alexander <4418484+kuscher@users.noreply.github.com>
 Date: Tue, 29 Sep 2026 08:11:53 +0000
-Subject: [PATCH 12/19] Android: status messages name documents, not working
+Subject: [PATCH 12/20] Android: status messages name documents, not working
  copies
 
 "Saved <app-internal path>" becomes "Saved Downloads > photo.psd": the
