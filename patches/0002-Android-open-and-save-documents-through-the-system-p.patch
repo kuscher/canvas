@@ -1,0 +1,409 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Alexander <4418484+kuscher@users.noreply.github.com>
+Date: Tue, 29 Sep 2026 06:48:47 +0000
+Subject: [PATCH 2/2] Android: open and save documents through the system
+ picker
+
+Android hands out documents (content:// URIs), not paths. As the web build
+does with the browser, the pickers copy the chosen document into a working
+copy under the app's storage and return its path, so the path-based open
+and save pipelines run unchanged; after a save the working copy is copied
+back to its document. Each working copy sits beside a .uri file naming its
+document, access is kept across restarts, and reopening a recent file
+reads the document again first.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ CMakeLists.txt                  |   8 ++
+ src/ui/dialog_utils.cpp         |  28 +++++
+ src/ui/dialog_utils_android.cpp | 212 ++++++++++++++++++++++++++++++++
+ src/ui/dialog_utils_android.hpp |  49 ++++++++
+ src/ui/main_window_files.cpp    |   7 ++
+ 5 files changed, 304 insertions(+)
+ create mode 100644 src/ui/dialog_utils_android.cpp
+ create mode 100644 src/ui/dialog_utils_android.hpp
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 919d15a..e2b19c1 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -1196,6 +1196,14 @@ ${PATCHY_LUPDATE_MANIFEST_SOURCES}
+       target_sources(patchy_ui PRIVATE src/ui/print_dialog.cpp)
+       target_link_libraries(patchy_ui PUBLIC Qt6::PrintSupport)
+     endif()
++    # Android document access: the system picker and "Open with" hand out
++    # content:// documents, copied in and out of working copies.
++    if(ANDROID)
++      target_sources(patchy_ui PRIVATE
++        src/ui/dialog_utils_android.hpp
++        src/ui/dialog_utils_android.cpp
++      )
++    endif()
+     # Same swap for the optional Qt PDF add-on: the real importer where the module exists,
+     # the stub (which reports PDF opening as unavailable) everywhere else. PDF EXPORT is
+     # not gated at all; pdf_export.cpp sits in the unconditional source list above.
+diff --git a/src/ui/dialog_utils.cpp b/src/ui/dialog_utils.cpp
+index 6d592ac..6264029 100644
+--- a/src/ui/dialog_utils.cpp
++++ b/src/ui/dialog_utils.cpp
+@@ -10,6 +10,9 @@
+ #ifdef Q_OS_WASM
+ #include "ui/dialog_utils_wasm.hpp"
+ #endif
++#ifdef Q_OS_ANDROID
++#include "ui/dialog_utils_android.hpp"
++#endif
+ 
+ #include <QAbstractButton>
+ #include <QAbstractSpinBox>
+@@ -1808,6 +1811,15 @@ QString get_open_file_name(QWidget* parent, const QString& caption, const QStrin
+   Q_UNUSED(object_name);
+   Q_UNUSED(filter_details);
+   return wasm_files::pick_open_file(parent, caption, filter);
++#elif defined(Q_OS_ANDROID)
++  // Android hands out documents, not paths: the system picker's choice is
++  // copied into a working copy whose path the open pipeline reads unchanged
++  // (dialog_utils_android.cpp).
++  Q_UNUSED(dir);
++  Q_UNUSED(selected_filter);
++  Q_UNUSED(object_name);
++  Q_UNUSED(filter_details);
++  return android_files::pick_open_files(parent, caption, filter, false).value(0);
+ #else
+   QFileDialog dialog(parent, caption, QString(), filter);
+   configure_file_dialog(dialog, object_name, dir, QFileDialog::AcceptOpen, QFileDialog::ExistingFile, selected_filter);
+@@ -1832,6 +1844,12 @@ QStringList get_open_file_names(QWidget* parent, const QString& caption, const Q
+   // single pick; every caller handles a one-element list sensibly.
+   auto path = get_open_file_name(parent, caption, dir, filter, selected_filter, object_name, filter_details);
+   return path.isEmpty() ? QStringList() : QStringList{std::move(path)};
++#elif defined(Q_OS_ANDROID)
++  Q_UNUSED(dir);
++  Q_UNUSED(selected_filter);
++  Q_UNUSED(object_name);
++  Q_UNUSED(filter_details);
++  return android_files::pick_open_files(parent, caption, filter, true);
+ #else
+   QFileDialog dialog(parent, caption, QString(), filter);
+   configure_file_dialog(dialog, object_name, dir, QFileDialog::AcceptOpen, QFileDialog::ExistingFiles, selected_filter);
+@@ -1858,6 +1876,13 @@ QString get_save_file_name(QWidget* parent, const QString& caption, const QStrin
+   Q_UNUSED(object_name);
+   Q_UNUSED(recent_files);
+   return wasm_files::prompt_save_file(parent, caption, dir, filter, selected_filter);
++#elif defined(Q_OS_ANDROID)
++  // The system "save as" picker creates the document; the writers then write
++  // its working copy, and offer_browser_download_for_saved_file copies that
++  // back (dialog_utils_android.cpp).
++  Q_UNUSED(object_name);
++  Q_UNUSED(recent_files);
++  return android_files::pick_save_file(parent, caption, dir, filter, selected_filter);
+ #else
+   QFileDialog dialog(parent, caption, QString(), filter);
+   configure_file_dialog(dialog, object_name, dir, QFileDialog::AcceptSave, QFileDialog::AnyFile, selected_filter);
+@@ -1878,6 +1903,9 @@ QString get_save_file_name(QWidget* parent, const QString& caption, const QStrin
+ void offer_browser_download_for_saved_file(const QString& path) {
+ #ifdef Q_OS_WASM
+   wasm_files::download_file_in_browser(path);
++#elif defined(Q_OS_ANDROID)
++  // Android: copy the saved working copy back to its document.
++  (void)android_files::commit_saved_file(path);
+ #else
+   // Desktop builds write real files; there is nothing to offer.
+   Q_UNUSED(path);
+diff --git a/src/ui/dialog_utils_android.cpp b/src/ui/dialog_utils_android.cpp
+new file mode 100644
+index 0000000..fd12cef
+--- /dev/null
++++ b/src/ui/dialog_utils_android.cpp
+@@ -0,0 +1,212 @@
++#include "ui/dialog_utils_android.hpp"
++
++#include "ui/dialog_utils.hpp"
++
++#include <QCoreApplication>
++#include <QCryptographicHash>
++#include <QDir>
++#include <QFile>
++#include <QFileDialog>
++#include <QFileInfo>
++#include <QJniObject>
++#include <QRegularExpression>
++#include <QStandardPaths>
++#include <QUrl>
++
++// Canvas's own messages are English only: they stay out of Patchy's translation
++// catalogs, which the build checks against the sources.
++namespace patchy::ui::android_files {
++namespace {
++
++constexpr auto kJavaFiles = "io/github/kuscher/canvas/CanvasFiles";
++constexpr auto kUriFile = ".uri";
++
++QJniObject android_context() {
++  return QJniObject(QNativeInterface::QAndroidApplication::context());
++}
++
++QJniObject jstring_of(const QString& text) {
++  return QJniObject::fromString(text);
++}
++
++QString java_display_name(const QString& uri) {
++  const auto name = QJniObject::callStaticObjectMethod(
++      kJavaFiles, "displayName", "(Landroid/content/Context;Ljava/lang/String;)Ljava/lang/String;",
++      android_context().object(), jstring_of(uri).object<jstring>());
++  return name.isValid() ? name.toString() : QString();
++}
++
++void java_persist(const QString& uri) {
++  QJniObject::callStaticMethod<void>(kJavaFiles, "persist", "(Landroid/content/Context;Ljava/lang/String;)V",
++                                     android_context().object(), jstring_of(uri).object<jstring>());
++}
++
++bool java_copy_to_file(const QString& uri, const QString& path) {
++  return QJniObject::callStaticMethod<jboolean>(
++      kJavaFiles, "copyToFile", "(Landroid/content/Context;Ljava/lang/String;Ljava/lang/String;)Z",
++      android_context().object(), jstring_of(uri).object<jstring>(), jstring_of(path).object<jstring>());
++}
++
++bool java_copy_from_file(const QString& path, const QString& uri) {
++  return QJniObject::callStaticMethod<jboolean>(
++      kJavaFiles, "copyFromFile", "(Landroid/content/Context;Ljava/lang/String;Ljava/lang/String;)Z",
++      android_context().object(), jstring_of(path).object<jstring>(), jstring_of(uri).object<jstring>());
++}
++
++QString documents_root() {
++  return QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + QStringLiteral("/documents");
++}
++
++// One folder per document, named after its URI, so a document keeps the same
++// working copy (and recent-file entry) every time it is opened.
++QString folder_for(const QString& uri) {
++  const auto key = QCryptographicHash::hash(uri.toUtf8(), QCryptographicHash::Sha1).toHex().left(16);
++  return documents_root() + QLatin1Char('/') + QString::fromLatin1(key);
++}
++
++QString safe_file_name(QString name) {
++  name.replace(QRegularExpression(QStringLiteral("[/\\\\:*?\"<>|\\x00-\\x1f]")), QStringLiteral("_"));
++  name = name.trimmed();
++  if (name.isEmpty() || name == QStringLiteral(".") || name == QStringLiteral("..")) {
++    name = QStringLiteral("Untitled");
++  }
++  return name;
++}
++
++QString document_uri_for(const QString& path) {
++  const QFileInfo info(path);
++  if (!QDir::cleanPath(info.absolutePath()).startsWith(QDir::cleanPath(documents_root()) + QLatin1Char('/'))) {
++    return {};
++  }
++  QFile file(info.absoluteDir().filePath(QString::fromLatin1(kUriFile)));
++  if (!file.open(QIODevice::ReadOnly)) {
++    return {};
++  }
++  return QString::fromUtf8(file.readAll()).trimmed();
++}
++
++QString working_copy_for(const QString& uri, const QString& name) {
++  const auto folder = folder_for(uri);
++  QDir().mkpath(folder);
++  QFile file(folder + QLatin1Char('/') + QString::fromLatin1(kUriFile));
++  if (file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
++    file.write(uri.toUtf8());
++  }
++  return folder + QLatin1Char('/') + safe_file_name(name);
++}
++
++// The filter row ("PNG (*.png)") listing this file's extension.
++QString filter_row_for(const QString& filter, const QString& file_name) {
++  const auto suffix = QFileInfo(file_name).suffix().toLower();
++  if (suffix.isEmpty()) {
++    return {};
++  }
++  const auto rows = filter.split(QStringLiteral(";;"), Qt::SkipEmptyParts);
++  for (const auto& row : rows) {
++    if (row.contains(QStringLiteral("*.") + suffix + QLatin1Char(' ')) ||
++        row.contains(QStringLiteral("*.") + suffix + QLatin1Char(')'))) {
++      return row;
++    }
++  }
++  return {};
++}
++
++}  // namespace
++
++QString import_document(const QString& uri) {
++  if (uri.isEmpty()) {
++    return {};
++  }
++  if (!uri.startsWith(QStringLiteral("content:"))) {
++    return QUrl(uri).isLocalFile() ? QUrl(uri).toLocalFile() : uri;
++  }
++  java_persist(uri);
++  auto name = java_display_name(uri);
++  const auto path = working_copy_for(uri, name);
++  if (!java_copy_to_file(uri, path)) {
++    return {};
++  }
++  return path;
++}
++
++QStringList pick_open_files(QWidget* parent, const QString& caption, const QString& filter, bool multiple) {
++  QList<QUrl> urls;
++  if (multiple) {
++    urls = QFileDialog::getOpenFileUrls(parent, caption, QUrl(), filter);
++  } else if (const auto url = QFileDialog::getOpenFileUrl(parent, caption, QUrl(), filter); !url.isEmpty()) {
++    urls.push_back(url);
++  }
++  QStringList paths;
++  for (const auto& url : urls) {
++    const auto text = url.isLocalFile() ? url.toLocalFile() : url.toString();
++    const auto path = import_document(text);
++    if (path.isEmpty()) {
++      show_critical_message(parent, caption,
++                            QStringLiteral("Canvas could not read \"%1\".")
++                                .arg(java_display_name(text)),
++                            QStringLiteral("androidOpenFailedMessageBox"));
++      continue;
++    }
++    paths.push_back(path);
++  }
++  return paths;
++}
++
++QString pick_save_file(QWidget* parent, const QString& caption, const QString& initial_path, const QString& filter,
++                       QString* selected_filter) {
++  const auto suggested = QFileInfo(initial_path).fileName();
++  QString chosen_filter = selected_filter != nullptr ? *selected_filter : QString();
++  const auto url = QFileDialog::getSaveFileUrl(parent, caption,
++                                               suggested.isEmpty() ? QUrl() : QUrl::fromLocalFile(suggested), filter,
++                                               &chosen_filter);
++  if (url.isEmpty()) {
++    return {};
++  }
++  if (url.isLocalFile()) {
++    return url.toLocalFile();
++  }
++  const auto uri = url.toString();
++  java_persist(uri);
++  auto name = java_display_name(uri);
++  if (name.isEmpty()) {
++    name = suggested;
++  }
++  if (selected_filter != nullptr) {
++    if (const auto row = filter_row_for(filter, name); !row.isEmpty()) {
++      *selected_filter = row;
++    } else if (!chosen_filter.isEmpty()) {
++      *selected_filter = chosen_filter;
++    }
++  }
++  return working_copy_for(uri, name);
++}
++
++bool is_working_copy(const QString& path) {
++  return !document_uri_for(path).isEmpty();
++}
++
++void refresh_working_copy(const QString& path) {
++  const auto uri = document_uri_for(path);
++  if (!uri.isEmpty()) {
++    (void)java_copy_to_file(uri, path);
++  }
++}
++
++bool commit_saved_file(const QString& path) {
++  const auto uri = document_uri_for(path);
++  if (uri.isEmpty()) {
++    return true;
++  }
++  if (java_copy_from_file(path, uri)) {
++    return true;
++  }
++  show_critical_message(
++      nullptr, QStringLiteral("Couldn't Save"),
++      QStringLiteral("Canvas could not write to \"%1\". It may have been moved or deleted, or Canvas may no "
++                     "longer have access to it. Use Save As to save a copy somewhere else.")
++          .arg(QFileInfo(path).fileName()),
++      QStringLiteral("androidSaveFailedMessageBox"));
++  return false;
++}
++
++}  // namespace patchy::ui::android_files
+diff --git a/src/ui/dialog_utils_android.hpp b/src/ui/dialog_utils_android.hpp
+new file mode 100644
+index 0000000..9e17fef
+--- /dev/null
++++ b/src/ui/dialog_utils_android.hpp
+@@ -0,0 +1,49 @@
++#pragma once
++
++#include <QString>
++#include <QStringList>
++
++class QWidget;
++
++// Document access for the Android build. dialog_utils.cpp delegates its file
++// pickers here under Q_OS_ANDROID, as it delegates to wasm_files in the browser.
++//
++// The shared shape: Android hands out documents (content:// URIs from the
++// system picker or another app), not paths. Opens copy the document into a
++// working copy under the app's storage and return that path, so the
++// path-based open pipeline runs unchanged; saves write the working copy, and
++// commit_saved_file copies it back to the document. Each working copy lives in
++// documents/<key>/<display name> beside a .uri file naming its document, and
++// access to the document is kept across restarts, so Save and recent files
++// keep working. The Java half is io.github.kuscher.canvas.CanvasFiles.
++namespace patchy::ui::android_files {
++
++// Runs the system picker and returns the working copies of the picked
++// documents (empty on cancel).
++[[nodiscard]] QStringList pick_open_files(QWidget* parent, const QString& caption, const QString& filter,
++                                          bool multiple);
++
++// Runs the system "save as" picker. Returns the working copy path for the new
++// document (empty on cancel) and stores the filter row matching its extension
++// in *selected_filter.
++[[nodiscard]] QString pick_save_file(QWidget* parent, const QString& caption, const QString& initial_path,
++                                     const QString& filter, QString* selected_filter);
++
++// Copies a document (a content:// URI, e.g. from "Open with") into its working
++// copy and returns that path, or an empty string when it can't be read.
++[[nodiscard]] QString import_document(const QString& uri);
++
++// Whether path is the working copy of a document.
++[[nodiscard]] bool is_working_copy(const QString& path);
++
++// Refreshes a working copy from its document before it is opened again (a
++// recent file), when the document is still reachable. Keeps the old copy
++// otherwise.
++void refresh_working_copy(const QString& path);
++
++// Copies a freshly saved working copy back to its document. Returns false
++// after telling the user when the document can't be written; true for paths
++// that aren't working copies.
++bool commit_saved_file(const QString& path);
++
++}  // namespace patchy::ui::android_files
+diff --git a/src/ui/main_window_files.cpp b/src/ui/main_window_files.cpp
+index 7104f14..b6e110d 100644
+--- a/src/ui/main_window_files.cpp
++++ b/src/ui/main_window_files.cpp
+@@ -57,6 +57,9 @@
+ #ifdef Q_OS_WASM
+ #include "ui/dialog_utils_wasm.hpp"
+ #endif
++#ifdef Q_OS_ANDROID
++#include "ui/dialog_utils_android.hpp"
++#endif
+ #include "ui/document_float_window.hpp"
+ #include "ui/font_picker.hpp"
+ #include "ui/hotkey_editor.hpp"
+@@ -2071,6 +2074,10 @@ void MainWindow::open_document_path(QString path) {
+     show_preview_dialog_edit_lock_message();
+     return;
+   }
++#ifdef Q_OS_ANDROID
++  // Reopening a document (a recent file): read its current contents again.
++  android_files::refresh_working_copy(path);
++#endif
+ #ifdef Q_OS_WASM
+   const bool browser_transfer = wasm_files::is_temporary_transfer_path(path);
+   const auto release_browser_transfer = qScopeGuard([&path, browser_transfer] {

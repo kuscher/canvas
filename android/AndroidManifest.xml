@@ -1,0 +1,61 @@
+<?xml version="1.0"?>
+<!-- Canvas: Patchy for Googlebooks. Starts from Qt's template
+     (qtbase/src/android/templates/AndroidManifest.xml). Differences:
+     - No %%INSERT_PERMISSIONS / %%INSERT_FEATURES placeholders, so
+       androiddeployqt adds nothing: in particular no INTERNET permission,
+       which QtNetwork would otherwise pull in.
+     - A resizable desktop window, any orientation. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.kuscher.canvas"
+    android:installLocation="auto"
+    android:versionCode="-- %%INSERT_VERSION_CODE%% --"
+    android:versionName="-- %%INSERT_VERSION_NAME%% --">
+    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+    <uses-feature android:name="android.hardware.type.pc" android:required="false" />
+    <supports-screens
+        android:anyDensity="true"
+        android:largeScreens="true"
+        android:normalScreens="true"
+        android:smallScreens="true" />
+    <application
+        android:name="org.qtproject.qt.android.bindings.QtApplication"
+        android:hardwareAccelerated="true"
+        android:label="@string/app_name"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
+        android:resizeableActivity="true"
+        android:enableOnBackInvokedCallback="false">
+        <activity
+            android:name="org.qtproject.qt.android.bindings.QtActivity"
+            android:configChanges="orientation|uiMode|screenLayout|screenSize|smallestScreenSize|layoutDirection|locale|fontScale|keyboard|keyboardHidden|navigation|mcc|mnc|density"
+            android:label="@string/app_name"
+            android:launchMode="singleTop"
+            android:resizeableActivity="true"
+            android:screenOrientation="unspecified"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <layout android:defaultWidth="1280dp" android:defaultHeight="800dp"
+                android:minWidth="640dp" android:minHeight="480dp" />
+
+            <meta-data
+                android:name="android.app.lib_name"
+                android:value="-- %%INSERT_APP_LIB_NAME%% --" />
+            <meta-data
+                android:name="android.app.arguments"
+                android:value="-- %%INSERT_APP_ARGUMENTS%% --" />
+        </activity>
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.qtprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/qtprovider_paths"/>
+        </provider>
+    </application>
+</manifest>

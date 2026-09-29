@@ -1,0 +1,7 @@
+# The Patchy release Canvas is built from, and the toolchain it's built with.
+PATCHY_REPO=https://github.com/SethRobinson/Patchy.git
+PATCHY_TAG=v1.00
+PATCHY_COMMIT=a7837a5892863b6bdbd0edf14efa1bb2e2cea08d
+QT_VERSION=6.11.3
+NDK_RELEASE=r27c
+NDK_VERSION=27.2.12479018

@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Canvas helper. Local builds run on this arm64 VM with the toolchain from
+# tools/toolchain.sh; CI builds the release APK (see .github/workflows).
+#
+#   ./cv setup                 install the local toolchain (Qt, NDK with native clang)
+#   ./cv src                   make the Patchy working copy: UPSTREAM + patches/ on branch canvas
+#   ./cv patches               write branch canvas back into patches/ (format-patch)
+#   ./cv build [universal|arm64|x86_64]
+#                              configure, compile and package; signs build/Canvas-<abi>.apk
+#                              (universal: one APK with arm64-v8a and x86_64, like CI)
+#   ./cv install [abi]         adb install -r the local build (default arm64)
+#   ./cv start | stop          launch or force-stop the app
+#   ./cv logs                  logcat for the app's process
+#   ./cv shot [name]           screenshot of the display into build/shots/<name>.png
+#
+# Environment: CANVAS_CACHE (default ~/.cache/canvas), CANVAS_KEYS (default
+# ~/.config/canvas), ANDROID_SERIAL (adb device).
+set -euo pipefail
+ROOT=$(cd "$(dirname "$(readlink -f "$0")")" && pwd)
+cd "$ROOT"
+. ./UPSTREAM
+. ./VERSION
+C=${CANVAS_CACHE:-$HOME/.cache/canvas}
+KEYS=${CANVAS_KEYS:-$HOME/.config/canvas}
+SRC=$C/patchy
+PKG=io.github.kuscher.canvas
+ACTIVITY=org.qtproject.qt.android.bindings.QtActivity
+SDK=${ANDROID_SDK_ROOT:-$HOME/Android/Sdk}
+die() { echo "cv: $*" >&2; exit 1; }
+
+abi_dir() { case ${1:-arm64} in arm64|universal) echo arm64_v8a ;; x86_64) echo x86_64 ;; *) die "unknown ABI $1" ;; esac; }
+
+cmd_src() {
+  if [[ ! -d $SRC/.git ]]; then
+    git clone -q "$PATCHY_REPO" "$SRC"
+  fi
+  git -C "$SRC" fetch -q origin "refs/tags/$PATCHY_TAG:refs/tags/$PATCHY_TAG" 2>/dev/null || true
+  if git -C "$SRC" rev-parse -q --verify canvas >/dev/null; then
+    echo "branch canvas exists in $SRC; leaving it alone"
+  else
+    git -C "$SRC" checkout -q -b canvas "$PATCHY_COMMIT"
+    shopt -s nullglob
+    local p=(patches/*.patch)
+    ((${#p[@]})) && git -C "$SRC" -c user.name=Canvas -c user.email=canvas@invalid am -q "${p[@]/#/$ROOT/}"
+    echo "branch canvas at $(git -C "$SRC" log -1 --format='%h %s')"
+  fi
+}
+
+cmd_patches() {
+  rm -f patches/*.patch
+  git -C "$SRC" format-patch -q --no-signature --zero-commit -o "$ROOT/patches" "$PATCHY_COMMIT..canvas"
+  ls patches
+}
+
+cmd_build() {
+  local abi=${1:-arm64} qabi; qabi=$(abi_dir "$abi")
+  local B=$C/build-$abi Q=$C/qt/$QT_VERSION N=$C/ndk/android-ndk-$NDK_RELEASE
+  [[ -d $Q/android_$qabi && -d $N ]] || die "no toolchain: run ./cv setup"
+  local multi=()
+  [[ $abi == universal ]] && multi=("-DQT_ANDROID_ABIS=arm64-v8a;x86_64"
+    "-DQT_PATH_ANDROID_ABI_arm64-v8a=$Q/android_arm64_v8a" "-DQT_PATH_ANDROID_ABI_x86_64=$Q/android_x86_64")
+  if [[ ! -f $B/build.ninja ]]; then
+    "$Q/android_$qabi/bin/qt-cmake" -S "$SRC" -B "$B" -G Ninja -DCMAKE_BUILD_TYPE=Release \
+      -DQT_HOST_PATH="$Q/gcc_arm64" -DANDROID_SDK_ROOT="$SDK" -DANDROID_NDK_ROOT="$N" \
+      -DPATCHY_BUILD_TESTS=OFF -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+      -DPATCHY_ANDROID_PACKAGE_DIR="$ROOT/android" \
+      -DPATCHY_ANDROID_VERSION_NAME="$VERSION_NAME" -DPATCHY_ANDROID_VERSION_CODE="$VERSION_CODE" \
+      "${multi[@]}" -Wno-deprecated -Wno-dev >/dev/null
+  fi
+  cmake --build "$B" --target apk -j "$(nproc)"
+  local unsigned
+  unsigned=$(find "$B/android-build" -name '*release-unsigned.apk' -newer "$B/build.ninja" | head -1)
+  [[ -n $unsigned ]] || unsigned=$(find "$B/android-build" -name '*.apk' | head -1)
+  [[ -n $unsigned ]] || die "no APK under $B/android-build"
+  mkdir -p build
+  sign "$unsigned" "build/Canvas-$abi.apk"
+  ls -la "build/Canvas-$abi.apk"
+}
+
+sign() {
+  local in=$1 out=$2 ks pass
+  if [[ -f $KEYS/keystore.jks ]]; then
+    ks=$KEYS/keystore.jks pass=file:$KEYS/keystore.pass
+  else
+    ks=$C/debug.jks pass=pass:canvas-debug
+    [[ -f $ks ]] || keytool -genkeypair -keystore "$ks" -storetype PKCS12 -storepass canvas-debug \
+      -alias debug -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Canvas debug" >/dev/null 2>&1
+  fi
+  zipalign -f -p 4 "$in" "$out.aligned"
+  apksigner sign --ks "$ks" --ks-pass "$pass" --out "$out" "$out.aligned"
+  rm -f "$out.aligned" "$out.idsig"
+}
+
+adb_() { adb ${ANDROID_SERIAL:+-s "$ANDROID_SERIAL"} "$@"; }
+
+case ${1:-help} in
+  setup) tools/toolchain.sh ;;
+  src) cmd_src ;;
+  patches) cmd_patches ;;
+  build) shift; cmd_build "$@" ;;
+  install) adb_ install -r "build/Canvas-${2:-arm64}.apk" ;;
+  start) adb_ shell am start --user current -n "$PKG/$ACTIVITY" ;;
+  stop) adb_ shell am force-stop --user current "$PKG" ;;
+  logs) pid=$(adb_ shell pidof "$PKG" || true); [[ -n $pid ]] || die "not running"; adb_ logcat --pid="$pid" ;;
+  shot) mkdir -p build/shots; adb_ exec-out screencap -p > "build/shots/${2:-shot}.png"; echo "build/shots/${2:-shot}.png" ;;
+  *) sed -n '3,16p' "$0" | sed 's/^# \{0,1\}//' ;;
+esac

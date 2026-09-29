@@ -1,0 +1,138 @@
+# Builds Canvas: Patchy at the commit in UPSTREAM with patches/ applied, as one
+# Android APK for arm64-v8a and x86_64 (Qt's multi-ABI build), with the stock
+# NDK and Qt for Android from Qt's servers. The APK is unsigned; ./cv fetch
+# downloads and signs it with the release key.
+#
+# Local builds on the Googlebook's arm64 VM use the same patches with
+# tools/toolchain.sh (the NDK's sysroot with Debian's native clang); this job
+# is the reference build for releases.
+name: APK
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - UPSTREAM
+      - VERSION
+      - patches/**
+      - android/**
+      - .github/workflows/build.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: apk-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CCACHE_DIR: ${{ github.workspace }}/.ccache
+  CCACHE_MAXSIZE: 3G
+  CCACHE_COMPRESS: "true"
+
+jobs:
+  apk:
+    name: Canvas APK
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    steps:
+      - name: Check out Canvas
+        uses: actions/checkout@v4
+        with:
+          path: canvas
+
+      - name: Versions
+        run: |
+          cat canvas/UPSTREAM canvas/VERSION | grep -v '^#' >> "$GITHUB_ENV"
+          nproc; free -h; df -h / | tail -1
+
+      - name: Check out Patchy and apply patches
+        run: |
+          . canvas/UPSTREAM
+          git init -q patchy
+          git -C patchy remote add origin "$PATCHY_REPO"
+          git -C patchy fetch -q --depth 1 origin "$PATCHY_COMMIT"
+          git -C patchy checkout -q --detach FETCH_HEAD
+          git -C patchy -c user.name=Canvas -c user.email=ci@invalid am -q "$GITHUB_WORKSPACE"/canvas/patches/*.patch
+          git -C patchy log --oneline -n 20
+
+      - name: Build tools
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends ninja-build ccache
+          pipx install aqtinstall
+
+      - name: Restore Qt
+        id: qt
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/qt
+          key: qt-${{ env.QT_VERSION }}-linux-android-v1
+
+      - name: Install Qt
+        if: steps.qt.outputs.cache-hit != 'true'
+        run: |
+          aqt install-qt linux desktop "$QT_VERSION" linux_gcc_64 -O qt -m qtimageformats
+          for abi in android_arm64_v8a android_x86_64; do
+            aqt install-qt all_os android "$QT_VERSION" "$abi" -O qt -m qtimageformats
+          done
+          ls qt/"$QT_VERSION"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Android SDK packages
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install \
+            "ndk;$NDK_VERSION" "platforms;android-36" "build-tools;36.0.0" >/dev/null
+          ls "$ANDROID_HOME/ndk"
+
+      - name: Restore ccache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ccache-${{ env.QT_VERSION }}-${{ env.NDK_VERSION }}-${{ github.run_id }}
+          restore-keys: ccache-${{ env.QT_VERSION }}-${{ env.NDK_VERSION }}-
+
+      - name: Configure
+        run: |
+          Q=$GITHUB_WORKSPACE/qt/$QT_VERSION
+          "$Q/android_arm64_v8a/bin/qt-cmake" -S patchy -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DQT_HOST_PATH="$Q/gcc_64" -DANDROID_SDK_ROOT="$ANDROID_HOME" \
+            -DANDROID_NDK_ROOT="$ANDROID_HOME/ndk/$NDK_VERSION" \
+            "-DQT_ANDROID_ABIS=arm64-v8a;x86_64" \
+            -DQT_PATH_ANDROID_ABI_arm64-v8a="$Q/android_arm64_v8a" \
+            -DQT_PATH_ANDROID_ABI_x86_64="$Q/android_x86_64" \
+            -DPATCHY_BUILD_TESTS=OFF \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DPATCHY_ANDROID_PACKAGE_DIR="$GITHUB_WORKSPACE/canvas/android" \
+            -DPATCHY_ANDROID_VERSION_NAME="$VERSION_NAME" \
+            -DPATCHY_ANDROID_VERSION_CODE="$VERSION_CODE" \
+            -Wno-deprecated -Wno-dev
+
+      - name: Build
+        run: |
+          ccache -z >/dev/null
+          cmake --build build --target apk -j "$(nproc)"
+          ccache -s | head -12
+          apk=$(find build/android-build -name '*release-unsigned.apk' | head -1)
+          mkdir -p out && cp "$apk" "out/Canvas-$VERSION_NAME-unsigned.apk"
+          ls -la out
+
+      - name: Save ccache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ccache-${{ env.QT_VERSION }}-${{ env.NDK_VERSION }}-${{ github.run_id }}
+
+      - name: Upload the unsigned APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: canvas-apk
+          path: out/*.apk
+          retention-days: 14

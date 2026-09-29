@@ -1,0 +1,244 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Alexander <4418484+kuscher@users.noreply.github.com>
+Date: Tue, 29 Sep 2026 06:41:24 +0000
+Subject: [PATCH 1/2] Android: build Patchy as a Qt for Android app
+
+A qt_add_executable target on Android (cmake/patchy_android.cmake) whose
+fonts, translations and bundled scripts ride along as Qt resources, since
+the executable directory is the read-only native-library folder. The web
+build's metric-compatible fonts come too, without the CJK families Android
+already has. Build-host steps that run the freshly built binary, the
+plug-in and TLS file checks, test fixtures and the Linux install rules are
+skipped. The desktop menu bar stays a menu bar instead of moving into the
+Android options menu, and the web build's font stand-ins apply.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ CMakeLists.txt                   | 18 ++++++---
+ cmake/patchy_android.cmake       | 67 ++++++++++++++++++++++++++++++++
+ src/app/main.cpp                 | 13 ++++++-
+ src/ui/localization.cpp          |  4 ++
+ src/ui/main_window.cpp           |  4 +-
+ src/ui/main_window_scripting.cpp |  4 ++
+ 6 files changed, 100 insertions(+), 10 deletions(-)
+ create mode 100644 cmake/patchy_android.cmake
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 5c13773..919d15a 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -684,8 +684,10 @@ ${PATCHY_LUPDATE_MANIFEST_SOURCES}
+     # checks fail at configure time (not first HTTPS use / first TIFF open at runtime)
+     # when the Qt install is missing qtimageformats or its TLS plugin. Not on wasm:
+     # that kit links plugins statically (no loadable files to probe) and has no TLS
+-    # backend at all (QtNetwork rides the browser's fetch).
+-    if(NOT EMSCRIPTEN)
++    # backend at all (QtNetwork rides the browser's fetch). Not on Android either:
++    # its kits name plugins libplugins_<type>_<name>_<abi>.so, androiddeployqt
++    # packages them, and the Android app has no network access to secure.
++    if(NOT EMSCRIPTEN AND NOT ANDROID)
+       if(WIN32)
+         set(PATCHY_REQUIRED_QT_TLS_PLUGINS qschannelbackend)
+         set(PATCHY_QT_PLUGIN_PREFIX "")
+@@ -1403,13 +1405,16 @@ ${PATCHY_LUPDATE_MANIFEST_SOURCES}
+       if(DEFINED PATCHY_FONTS_STAMP)
+         set_property(TARGET patchy APPEND PROPERTY LINK_DEPENDS "${PATCHY_FONTS_STAMP}")
+       endif()
++    elseif(ANDROID)
++      include("${PROJECT_SOURCE_DIR}/cmake/patchy_android.cmake")
++      patchy_add_android_app()
+     else()
+       add_executable(patchy WIN32 MACOSX_BUNDLE
+         src/app/main.cpp
+       )
+     endif()
+     target_link_libraries(patchy PRIVATE patchy_ui)
+-    if(NOT EMSCRIPTEN)
++    if(NOT EMSCRIPTEN AND NOT ANDROID)
+       add_executable(patchy-mcp src/app/main.cpp src/app/mcp_server.cpp src/app/mcp_stdio.cpp)
+       target_link_libraries(patchy-mcp PRIVATE patchy_ui)
+       target_compile_definitions(patchy-mcp PRIVATE PATCHY_MCP_EXECUTABLE=1)
+@@ -1447,7 +1452,8 @@ ${PATCHY_LUPDATE_MANIFEST_SOURCES}
+     patchy_copy_qt_runtime(patchy)
+     patchy_copy_bundled_fonts(patchy)
+     patchy_copy_bundled_scripts(patchy)
+-    if(NOT EMSCRIPTEN)
++    # Android: the checker runs the freshly built binary, which a cross build can't.
++    if(NOT EMSCRIPTEN AND NOT ANDROID)
+       # This small runner is a required build tool, independent of PATCHY_BUILD_TESTS.
+       # It shares the actual checks with the UI suite and has private temporary settings.
+       add_executable(patchy_translation_checks
+@@ -1545,7 +1551,7 @@ ${PATCHY_LUPDATE_MANIFEST_SOURCES}
+       add_custom_target(patchy_bundle_resources ALL
+                         DEPENDS "${PATCHY_BUNDLE_RESOURCES_STAMP}")
+     endif()
+-    if(NOT EMSCRIPTEN)
++    if(NOT EMSCRIPTEN AND NOT ANDROID)
+       # 34 MB the wasm virtual filesystem could never see; the sole runtime
+       # consumer (load_bundled_legacy_plugins) early-returns when absent.
+       add_custom_command(TARGET patchy POST_BUILD
+@@ -1559,7 +1565,7 @@ ${PATCHY_LUPDATE_MANIFEST_SOURCES}
+         RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+       )
+     endif()
+-    if(UNIX AND NOT APPLE AND NOT EMSCRIPTEN)
++    if(UNIX AND NOT APPLE AND NOT EMSCRIPTEN AND NOT ANDROID)
+       install(DIRECTORY "${PATCHY_AGENT_KIT_DIR}/"
+               DESTINATION "${CMAKE_INSTALL_DATADIR}/patchy/ai")
+       install(FILES "${PATCHY_BUNDLED_SCRIPTS_DIR}/patchy.d.ts"
+diff --git a/cmake/patchy_android.cmake b/cmake/patchy_android.cmake
+new file mode 100644
+index 0000000..cbaeeba
+--- /dev/null
++++ b/cmake/patchy_android.cmake
+@@ -0,0 +1,67 @@
++# The Android app target. Qt builds the app as a shared library
++# (libpatchy_<abi>.so) plus an apk target that androiddeployqt packages.
++#
++# The runtime files the desktop builds stage next to the executable (fonts,
++# translations, bundled scripts) ride along as Qt resources under :/, because
++# an Android app's executable directory is its read-only native-library
++# folder. The web build's metric-compatible fonts come too (Android has no
++# Arial, Times or Calibri), minus the CJK families Android already has.
++#
++# Optional cache variables:
++#   PATCHY_ANDROID_PACKAGE_DIR   AndroidManifest.xml, res/ and src/ (Java) that
++#                                replace Qt's template (QT_ANDROID_PACKAGE_SOURCE_DIR)
++#   PATCHY_ANDROID_VERSION_NAME  versionName (default: the project version)
++#   PATCHY_ANDROID_VERSION_CODE  versionCode (default: 1)
++
++set(PATCHY_ANDROID_PACKAGE_DIR "" CACHE PATH "Android package sources (manifest, res, java)")
++set(PATCHY_ANDROID_VERSION_NAME "${PROJECT_VERSION}" CACHE STRING "Android versionName")
++set(PATCHY_ANDROID_VERSION_CODE "1" CACHE STRING "Android versionCode")
++
++function(patchy_android_resource_files out_var source_dir alias_dir)
++  file(GLOB_RECURSE files RELATIVE "${source_dir}" CONFIGURE_DEPENDS "${source_dir}/*")
++  set(result)
++  foreach(relative IN LISTS files)
++    if(relative MATCHES "^(noto_sans_jp|noto_sans_sc|noto_sans_tc)/")
++      continue()
++    endif()
++    set(file "${source_dir}/${relative}")
++    set_source_files_properties("${file}" PROPERTIES QT_RESOURCE_ALIAS "${alias_dir}/${relative}")
++    list(APPEND result "${file}")
++  endforeach()
++  set(${out_var} ${result} PARENT_SCOPE)
++endfunction()
++
++function(patchy_add_android_app)
++  qt_add_executable(patchy src/app/main.cpp)
++  set_target_properties(patchy PROPERTIES
++    QT_ANDROID_MIN_SDK_VERSION 28
++    QT_ANDROID_TARGET_SDK_VERSION 36
++    QT_ANDROID_VERSION_NAME "${PATCHY_ANDROID_VERSION_NAME}"
++    QT_ANDROID_VERSION_CODE "${PATCHY_ANDROID_VERSION_CODE}"
++  )
++  # Deploy only the plugins the app uses. The QML debug services pull in Qt Quick
++  # (Patchy uses Qt Qml for QJSEngine scripting only, like the web build), and
++  # the app has no network access, so no TLS or network-information backends.
++  qt_import_plugins(patchy EXCLUDE_BY_TYPE qmltooling tls networkinformation)
++  # Nothing to scan for QML imports: Patchy ships no QML.
++  set(empty_qml_root "${CMAKE_BINARY_DIR}/android-empty-qml-root")
++  file(MAKE_DIRECTORY "${empty_qml_root}")
++  set_property(TARGET patchy PROPERTY QT_QML_ROOT_PATH "${empty_qml_root}")
++  if(PATCHY_ANDROID_PACKAGE_DIR)
++    set_property(TARGET patchy PROPERTY QT_ANDROID_PACKAGE_SOURCE_DIR "${PATCHY_ANDROID_PACKAGE_DIR}")
++  endif()
++
++  patchy_android_resource_files(fonts "${PATCHY_BUNDLED_FONTS_DIR}" fonts)
++  patchy_android_resource_files(web_fonts "${PATCHY_BUNDLED_FONTS_WEB_DIR}" fonts)
++  patchy_android_resource_files(scripts "${PROJECT_SOURCE_DIR}/scripts/bundled" scripts)
++  set(translations)
++  foreach(qm IN LISTS PATCHY_QM_FILES PATCHY_QT_BASE_QM_FILES)
++    get_filename_component(name "${qm}" NAME)
++    set_source_files_properties("${qm}" PROPERTIES QT_RESOURCE_ALIAS "translations/${name}" GENERATED TRUE)
++    list(APPEND translations "${qm}")
++  endforeach()
++  qt_add_resources(patchy patchy_android_runtime
++    PREFIX "/"
++    FILES ${fonts} ${web_fonts} ${scripts} ${translations}
++  )
++endfunction()
+diff --git a/src/app/main.cpp b/src/app/main.cpp
+index 64e7068..e727b28 100644
+--- a/src/app/main.cpp
++++ b/src/app/main.cpp
+@@ -68,6 +68,10 @@ void load_font_directory(const QDir& directory) {
+ }
+ 
+ void load_bundled_fonts() {
++#ifdef Q_OS_ANDROID
++  // Android: the bundled fonts are Qt resources (cmake/patchy_android.cmake).
++  load_font_directory(QDir(QStringLiteral(":/fonts")));
++#endif
+   load_font_directory(QDir(QCoreApplication::applicationDirPath() + QStringLiteral("/fonts")));
+ #ifdef Q_OS_MACOS
+   // Inside a .app bundle the executable lives in Contents/MacOS; the bundled fonts are
+@@ -372,6 +376,11 @@ int main(int argc, char* argv[]) {
+   }
+ #endif
+   apply_gui_scale_factor();
++#ifdef Q_OS_ANDROID
++  // Keep Patchy's own menu bar. Qt on Android otherwise moves QMenuBar into the
++  // Android options menu, which a desktop window doesn't show.
++  QCoreApplication::setAttribute(Qt::AA_DontUseNativeMenuBar);
++#endif
+   PatchyApplication app(argc, argv);
+   // Qt adopts the user's locale for the C runtime on Unix (setlocale(LC_ALL, "")), which turns
+   // every strtod/to_string in the file codecs decimal-comma under de_DE and friends and
+@@ -399,8 +408,8 @@ int main(int argc, char* argv[]) {
+   // guard is disabled; the format readers keep their own sanity checks.
+   QImageReader::setAllocationLimit(0);
+   load_bundled_fonts();
+-#ifdef Q_OS_WASM
+-  // Rendering-level stand-ins for system families the browser cannot provide.
++#if defined(Q_OS_WASM) || defined(Q_OS_ANDROID)
++  // Rendering-level stand-ins for system families the browser (or Android) cannot provide.
+   // The text tool's family matching has its own lookup over the same table
+   // (available_text_family_match) because substitutions never appear in
+   // QFontDatabase::families().
+diff --git a/src/ui/localization.cpp b/src/ui/localization.cpp
+index 875ab07..0d8f292 100644
+--- a/src/ui/localization.cpp
++++ b/src/ui/localization.cpp
+@@ -29,6 +29,10 @@ QStringList translation_directories() {
+   };
+ 
+   const auto app_dir = QCoreApplication::applicationDirPath();
++#ifdef Q_OS_ANDROID
++  // Android: the catalogs are Qt resources (cmake/patchy_android.cmake).
++  add_directory(QStringLiteral(":/translations"));
++#endif
+   add_directory(QDir(app_dir).filePath(QStringLiteral("translations")));
+   // Inside a macOS .app bundle the executable lives in Contents/MacOS; the bundled
+   // translations are staged in Contents/Resources/translations.
+diff --git a/src/ui/main_window.cpp b/src/ui/main_window.cpp
+index e7c4b2a..2760275 100644
+--- a/src/ui/main_window.cpp
++++ b/src/ui/main_window.cpp
+@@ -460,8 +460,8 @@ std::optional<QString> available_text_family_match(const QString& family) {
+       return candidate;
+     }
+   }
+-#ifdef Q_OS_WASM
+-  // The browser has no system fonts, so common system families resolve to
++#if defined(Q_OS_WASM) || defined(Q_OS_ANDROID)
++  // The browser has no system fonts (and Android lacks the Windows ones), so common system families resolve to
+   // their bundled metric-compatible stand-ins instead of raising the
+   // missing-font prompt. Only offer an alias whose target family actually
+   // exists (a build staged without third_party/fonts-web must not invent
+diff --git a/src/ui/main_window_scripting.cpp b/src/ui/main_window_scripting.cpp
+index 46b44bd..8e4b6a5 100644
+--- a/src/ui/main_window_scripting.cpp
++++ b/src/ui/main_window_scripting.cpp
+@@ -187,6 +187,10 @@ ScriptEngineHost& MainWindow::script_engine_host() {
+ 
+ QString MainWindow::bundled_scripts_directory() {
+   QStringList candidates;
++#ifdef Q_OS_ANDROID
++  // Android: the bundled scripts are Qt resources (cmake/patchy_android.cmake).
++  candidates << QStringLiteral(":/scripts");
++#endif
+   candidates << QCoreApplication::applicationDirPath() + QStringLiteral("/scripts");
+ #ifdef Q_OS_MACOS
+   candidates << QCoreApplication::applicationDirPath() + QStringLiteral("/../Resources/scripts");
