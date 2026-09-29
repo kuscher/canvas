@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Alexander <4418484+kuscher@users.noreply.github.com>
 Date: Tue, 29 Sep 2026 16:15:54 +0000
-Subject: [PATCH 18/20] Android: two-finger pans move the canvas view
+Subject: [PATCH 18/25] Android: two-finger pans move the canvas view
 
 Two-finger drags on the touchscreen and two-finger scrolls on a
 trackpad moved the view through wheel events, which Patchy's canvas

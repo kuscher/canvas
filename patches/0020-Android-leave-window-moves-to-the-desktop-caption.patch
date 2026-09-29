@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Alexander <4418484+kuscher@users.noreply.github.com>
 Date: Tue, 29 Sep 2026 16:22:31 +0000
-Subject: [PATCH 20/20] Android: leave window moves to the desktop caption
+Subject: [PATCH 20/25] Android: leave window moves to the desktop caption
 
 Patchy's menu bar doubles as a title bar on frameless desktop windows:
 pressing on its empty space restores a maximized window under the

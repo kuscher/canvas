@@ -32,6 +32,25 @@ with Qt for Android, for Googlebooks. Plan and decisions: docs/PLAN.md. Research
 - Patchy's build checks its translation catalogs against the sources, so Canvas's own UI text is
   plain `QStringLiteral` English (never `tr()`), or the check fails.
 
+## Branding and releases
+
+- The logo is `android/brand/canvas-logo.svg` (a white C on #6F3FE0), passed to the build as
+  `PATCHY_ANDROID_LOGO_FILE` for the start page; the launcher icon is the adaptive icon in
+  `android/res` (same C, sized for the 66 dp safe zone). After an icon change the launcher keeps
+  its cached icon; restarting the launcher can leave the desktop taskbar stashed (open and close
+  Overview twice to bring it back), so prefer telling the user it refreshes on its own.
+- `./cv build` refreshes Canvas's cache variables (VERSION, notices, logo) on every run.
+- Release: bump `VERSION`, add a `CHANGELOG.md` section, `./cv build universal` (signed with
+  `~/.config/canvas/keystore.jks`; backed up in the user's a private folder, the
+  password only in their password manager), then `tools/release.sh` (checks signature, version,
+  ABIs and a clean tree; writes dist/v<version>: Canvas.apk, the source tarball with the patched
+  Patchy, the Qt module sources from `aqt install-src`, SHA256SUMS) and `tools/release.sh --publish`.
+  The user makes the repo public themselves.
+- README screenshots: `tools/demo_art.py` writes the demo PSD (put it in Downloads with
+  `content insert/write --user 10` on content://media/external/downloads, open it with Canvas's
+  Open…, delete the row afterwards), capture a 1536x960 window with `./cv shot`, then
+  `tools/readme_images.py`. Never show the user's own files or recent-file names.
+
 ## Porting notes
 
 - On Android Qt defines `Q_OS_LINUX` too; Canvas code uses `Q_OS_ANDROID` next to Patchy's
@@ -45,6 +64,9 @@ with Qt for Android, for Googlebooks. Plan and decisions: docs/PLAN.md. Research
 - Deployment pulls Qt Quick in via the qmltooling plugins (about 11 MB per ABI);
   `qt_import_plugins` doesn't affect Android deployment. Not fixed yet.
 - Qt PDF isn't published for Android: PDF import is the stub (export works).
+- The system picker hides files whose MIME type doesn't exactly match Qt's (PSD: image/x-photoshop
+  on Android, image/vnd.adobe.photoshop in Qt), so Open offers every file; picker URIs must stay
+  `QUrl::FullyEncoded` (the pretty form decodes %20 and the grant no longer matches).
 - Every Qt top-level window (each menu, each combo popup) is a view in the activity's layout;
   popups draw in TextureViews over the main window's SurfaceView, so a popup behind the main
   window's view is open but invisible. Switching menus along the menu bar raised the main window

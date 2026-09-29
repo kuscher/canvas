@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 108 108">
+  <!-- Canvas: a white C on solid purple. SPDX-License-Identifier: MIT -->
+  <rect x="0" y="0" width="108" height="108" rx="26" fill="#6F3FE0"/>
+  <path d="M71.36,33.32 A27,27 0 1,0 71.36,74.68" fill="none" stroke="#FFFFFF" stroke-width="15" stroke-linecap="round"/>
+</svg>

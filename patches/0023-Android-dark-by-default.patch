@@ -1,0 +1,37 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Alexander <4418484+kuscher@users.noreply.github.com>
+Date: Tue, 29 Sep 2026 16:51:24 +0000
+Subject: [PATCH 23/25] Android: dark by default
+
+On a first run (no saved color scheme) Canvas starts in the dark
+scheme; Auto and Light stay one click away in its Appearance menu.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/ui/theme_manager.cpp | 11 +++++++----
+ 1 file changed, 7 insertions(+), 4 deletions(-)
+
+diff --git a/src/ui/theme_manager.cpp b/src/ui/theme_manager.cpp
+index 2fd8e45..c792c82 100644
+--- a/src/ui/theme_manager.cpp
++++ b/src/ui/theme_manager.cpp
+@@ -120,12 +120,15 @@ void ThemeManager::set_preference(ColorSchemePreference preference, bool persist
+ }
+ 
+ void ThemeManager::load_saved_preference() {
++#ifdef Q_OS_ANDROID
++  // Canvas starts dark; Auto and Light are in its Appearance menu.
++  constexpr auto first_run = ColorSchemePreference::Dark;
++#else
++  constexpr auto first_run = ColorSchemePreference::FollowSystem;
++#endif
+   auto settings = app_settings();
+   const auto token =
+-      settings
+-          .value(color_scheme_key(),
+-                 color_scheme_preference_to_token(ColorSchemePreference::FollowSystem))
+-          .toString();
++      settings.value(color_scheme_key(), color_scheme_preference_to_token(first_run)).toString();
+   set_preference(color_scheme_preference_from_token(token), /*persist=*/false);
+ }
+ 

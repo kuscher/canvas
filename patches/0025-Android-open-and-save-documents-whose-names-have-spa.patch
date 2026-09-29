@@ -1,0 +1,41 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Alexander <4418484+kuscher@users.noreply.github.com>
+Date: Tue, 29 Sep 2026 16:56:49 +0000
+Subject: [PATCH 25/25] Android: open and save documents whose names have
+ spaces
+
+The picker's document URIs were turned into text with QUrl's default
+(pretty) formatting, which decodes %20 to a space; Android then treats
+the result as another document, which the app may not read, so any
+file with a space in its name failed to open ("could not read") or to
+save. Keep the URI fully encoded, exactly as the picker granted it.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/ui/dialog_utils_android.cpp | 6 ++++--
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/src/ui/dialog_utils_android.cpp b/src/ui/dialog_utils_android.cpp
+index f23206b..da52bdd 100644
+--- a/src/ui/dialog_utils_android.cpp
++++ b/src/ui/dialog_utils_android.cpp
+@@ -206,7 +206,9 @@ QStringList pick_open_files(QWidget* parent, const QString& caption, const QStri
+   }
+   QStringList paths;
+   for (const auto& url : urls) {
+-    const auto text = url.isLocalFile() ? url.toLocalFile() : url.toString();
++    // The document's URI exactly as the picker granted it: the default (pretty) form decodes
++    // %20 and friends, and Android treats the result as another, unreadable document.
++    const auto text = url.isLocalFile() ? url.toLocalFile() : url.toString(QUrl::FullyEncoded);
+     const auto path = import_document(text);
+     if (path.isEmpty()) {
+       show_critical_message(parent, caption,
+@@ -233,7 +235,7 @@ QString pick_save_file(QWidget* parent, const QString& caption, const QString& i
+   if (url.isLocalFile()) {
+     return url.toLocalFile();
+   }
+-  const auto uri = url.toString();
++  const auto uri = url.toString(QUrl::FullyEncoded);
+   java_persist(uri);
+   auto name = java_display_name(uri);
+   if (name.isEmpty()) {

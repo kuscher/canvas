@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Alexander <4418484+kuscher@users.noreply.github.com>
 Date: Tue, 29 Sep 2026 09:48:23 +0000
-Subject: [PATCH 13/20] Android: menus in the caption only when there is a
+Subject: [PATCH 13/25] Android: menus in the caption only when there is a
  caption
 
 Full screen (a tablet, a full-screen window) has no caption bar to share:

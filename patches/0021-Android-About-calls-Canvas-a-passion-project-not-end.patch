@@ -1,0 +1,27 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Alexander <4418484+kuscher@users.noreply.github.com>
+Date: Tue, 29 Sep 2026 16:32:01 +0000
+Subject: [PATCH 21/25] Android: About calls Canvas a passion project, not
+ endorsed by any employer
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/ui/splash_dialog.cpp | 5 +++--
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/src/ui/splash_dialog.cpp b/src/ui/splash_dialog.cpp
+index 33e41ba..d3e7945 100644
+--- a/src/ui/splash_dialog.cpp
++++ b/src/ui/splash_dialog.cpp
+@@ -273,8 +273,9 @@ public:
+     android_credit->setTextInteractionFlags(Qt::TextBrowserInteraction);
+     set_themed_label_text(
+         *android_credit,
+-        QStringLiteral("This Android build is Canvas, made for Googlebooks by Alexander Kuscher. It is a "
+-                       "personal hobby project, not made or endorsed by Seth A. Robinson. "
++        QStringLiteral("This Android build is Canvas, made for Googlebooks by Alexander Kuscher: a "
++                       "personal passion project, not affiliated with or endorsed by any employer, and not "
++                       "made or endorsed by Seth A. Robinson. "
+                        "<a style=\"color:@splash_link_text; text-decoration:none;\" "
+                        "href=\"https://github.com/kuscher/canvas\">github.com/kuscher/canvas</a> &middot; "
+                        "<a style=\"color:@splash_link_text; text-decoration:none;\" "

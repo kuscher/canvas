@@ -1,0 +1,39 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Alexander <4418484+kuscher@users.noreply.github.com>
+Date: Tue, 29 Sep 2026 16:55:07 +0000
+Subject: [PATCH 24/25] Android: Open shows every file
+
+Qt turns the Open dialog's name filter into MIME types for the system
+picker, which hides every file whose type doesn't match exactly, and a
+PSD is image/x-photoshop to Android but image/vnd.adobe.photoshop to
+Qt: PSDs never appeared in Open. Offer every file; Patchy says so when
+it can't read one.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/ui/dialog_utils_android.cpp | 10 ++++++++--
+ 1 file changed, 8 insertions(+), 2 deletions(-)
+
+diff --git a/src/ui/dialog_utils_android.cpp b/src/ui/dialog_utils_android.cpp
+index b6fc394..f23206b 100644
+--- a/src/ui/dialog_utils_android.cpp
++++ b/src/ui/dialog_utils_android.cpp
+@@ -192,10 +192,16 @@ QString import_document(const QString& uri) {
+ }
+ 
+ QStringList pick_open_files(QWidget* parent, const QString& caption, const QString& filter, bool multiple) {
++  // Qt turns the name filter into MIME types for the system picker, which hides every file
++  // whose type doesn't match exactly, and Android's types don't always match Qt's (a PSD is
++  // image/x-photoshop to Android, image/vnd.adobe.photoshop to Qt). Offer every file instead;
++  // Patchy says so when it can't read one.
++  Q_UNUSED(filter);
++  const QString all_files;
+   QList<QUrl> urls;
+   if (multiple) {
+-    urls = QFileDialog::getOpenFileUrls(parent, caption, QUrl(), filter);
+-  } else if (const auto url = QFileDialog::getOpenFileUrl(parent, caption, QUrl(), filter); !url.isEmpty()) {
++    urls = QFileDialog::getOpenFileUrls(parent, caption, QUrl(), all_files);
++  } else if (const auto url = QFileDialog::getOpenFileUrl(parent, caption, QUrl(), all_files); !url.isEmpty()) {
+     urls.push_back(url);
+   }
+   QStringList paths;

@@ -1,0 +1,152 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Alexander <4418484+kuscher@users.noreply.github.com>
+Date: Tue, 29 Sep 2026 16:51:24 +0000
+Subject: [PATCH 22/25] Android: the start page shows Canvas's name and logo
+
+The Android build is Canvas: its start page shows Canvas's logo (an SVG
+the Canvas build passes as PATCHY_ANDROID_LOGO_FILE, resource
+:/android/logo.svg) and name instead of Patchy's, and its footer reads
+"Canvas <version>, based on Patchy <version>" and "Patchy by Seth A.
+Robinson", with the links to Patchy kept.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ CMakeLists.txt             |  4 ++++
+ cmake/patchy_android.cmake |  7 +++++++
+ src/ui/start_panel.cpp     | 37 +++++++++++++++++++++++++++++++++----
+ 3 files changed, 44 insertions(+), 4 deletions(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 368d6e7..98824ba 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -1209,6 +1209,10 @@ ${PATCHY_LUPDATE_MANIFEST_SOURCES}
+       # QPlatformScreen: the app window's current size (android_window.cpp).
+       find_package(Qt6 REQUIRED COMPONENTS CorePrivate GuiPrivate)
+       target_link_libraries(patchy_ui PRIVATE Qt6::CorePrivate Qt6::GuiPrivate)
++      # Canvas's version (the -D the Canvas build passes), for the start page.
++      if(PATCHY_ANDROID_VERSION_NAME)
++        target_compile_definitions(patchy_ui PRIVATE PATCHY_ANDROID_VERSION_NAME="${PATCHY_ANDROID_VERSION_NAME}")
++      endif()
+     endif()
+     # Same swap for the optional Qt PDF add-on: the real importer where the module exists,
+     # the stub (which reports PDF opening as unavailable) everywhere else. PDF EXPORT is
+diff --git a/cmake/patchy_android.cmake b/cmake/patchy_android.cmake
+index 4897370..4987bc7 100644
+--- a/cmake/patchy_android.cmake
++++ b/cmake/patchy_android.cmake
+@@ -14,11 +14,14 @@
+ #   PATCHY_ANDROID_VERSION_CODE  versionCode (default: 1)
+ #   PATCHY_ANDROID_NOTICES_FILE  the app's third-party notices, shown from the About
+ #                                dialog (resource :/android/THIRD_PARTY_NOTICES.md)
++#   PATCHY_ANDROID_LOGO_FILE     the app's logo (SVG) for the start page
++#                                (resource :/android/logo.svg)
+ 
+ set(PATCHY_ANDROID_PACKAGE_DIR "" CACHE PATH "Android package sources (manifest, res, java)")
+ set(PATCHY_ANDROID_VERSION_NAME "${PROJECT_VERSION}" CACHE STRING "Android versionName")
+ set(PATCHY_ANDROID_VERSION_CODE "1" CACHE STRING "Android versionCode")
+ set(PATCHY_ANDROID_NOTICES_FILE "" CACHE FILEPATH "Third-party notices shown in the About dialog")
++set(PATCHY_ANDROID_LOGO_FILE "" CACHE FILEPATH "App logo (SVG) shown on the start page")
+ 
+ function(patchy_android_resource_files out_var source_dir alias_dir)
+   file(GLOB_RECURSE files RELATIVE "${source_dir}" CONFIGURE_DEPENDS "${source_dir}/*")
+@@ -69,6 +72,10 @@ function(patchy_add_android_app)
+       QT_RESOURCE_ALIAS "android/THIRD_PARTY_NOTICES.md")
+     set(notices "${PATCHY_ANDROID_NOTICES_FILE}")
+   endif()
++  if(PATCHY_ANDROID_LOGO_FILE)
++    set_source_files_properties("${PATCHY_ANDROID_LOGO_FILE}" PROPERTIES QT_RESOURCE_ALIAS "android/logo.svg")
++    list(APPEND notices "${PATCHY_ANDROID_LOGO_FILE}")
++  endif()
+   qt_add_resources(patchy patchy_android_runtime
+     PREFIX "/"
+     FILES ${fonts} ${web_fonts} ${scripts} ${translations} ${notices}
+diff --git a/src/ui/start_panel.cpp b/src/ui/start_panel.cpp
+index d08e24d..18534f9 100644
+--- a/src/ui/start_panel.cpp
++++ b/src/ui/start_panel.cpp
+@@ -1,4 +1,8 @@
+ #include "ui/start_panel.hpp"
++
++#if defined(Q_OS_ANDROID) && !defined(PATCHY_ANDROID_VERSION_NAME)
++#define PATCHY_ANDROID_VERSION_NAME "dev"
++#endif
+ #ifdef Q_OS_ANDROID
+ #include "ui/dialog_utils_android.hpp"
+ #endif
+@@ -18,6 +22,7 @@
+ #include <QFont>
+ #include <QFontMetrics>
+ #include <QHBoxLayout>
++#include <QIcon>
+ #include <QLabel>
+ #include <QLineEdit>
+ #include <QListWidget>
+@@ -157,20 +162,35 @@ StartPanel::StartPanel(QWidget* parent) : QWidget(parent) {
+   // About-style header: the logo card beside the title and tagline.
+   auto* header_row = new QHBoxLayout();
+   header_row->setSpacing(18);
++#ifdef Q_OS_ANDROID
++  // Canvas (the Android build) shows its own logo and name; Patchy is credited below.
++  auto* artwork = new QLabel(column);
++  artwork->setFixedSize(104, 104);
++  artwork->setPixmap(QIcon(QStringLiteral(":/android/logo.svg")).pixmap(QSize(104, 104), devicePixelRatioF()));
++#else
+   auto* artwork = new SplashArtwork(column);
+   artwork->setFixedSize(110, 141);
++#endif
+   header_row->addStretch(1);
+   header_row->addWidget(artwork);
+   auto* header_text = new QVBoxLayout();
+   header_text->setSpacing(4);
++#ifdef Q_OS_ANDROID
++  auto* title = new QLabel(QStringLiteral("Canvas"), column);
++#else
+   auto* title = new QLabel(tr("Patchy Image Editor"), column);
+   bind_translated_text(title, QT_TR_NOOP("Patchy Image Editor"), "patchy::ui::StartPanel");
++#endif
+   title->setObjectName(QStringLiteral("startPanelTitle"));
+   auto* tagline = new QLabel(tr("Open source photo editing. Free forever, no subscriptions."), column);
+   bind_translated_text(tagline, QT_TR_NOOP("Open source photo editing. Free forever, no subscriptions."), "patchy::ui::StartPanel");
+   tagline->setObjectName(QStringLiteral("startPanelTagline"));
+   tagline->setWordWrap(true);
+   tagline->setMaximumWidth(240);
++#ifdef Q_OS_ANDROID
++  // "Canvas" is a short title; keep the tagline from wrapping to its width.
++  tagline->setMinimumWidth(230);
++#endif
+   header_text->addStretch(1);
+   header_text->addWidget(title);
+   header_text->addWidget(tagline);
+@@ -283,7 +303,13 @@ StartPanel::StartPanel(QWidget* parent) : QWidget(parent) {
+ 
+   auto* version = new QLabel(this);
+   retranslation_callbacks_.push_back([version] {
++#ifdef Q_OS_ANDROID
++    version->setText(QStringLiteral("Canvas %1, based on Patchy %2 (built %3)")
++                         .arg(QStringLiteral(PATCHY_ANDROID_VERSION_NAME), QStringLiteral(PATCHY_VERSION),
++                              build_timestamp_text()));
++#else
+     version->setText(tr("Version %1 (built %2)").arg(QStringLiteral(PATCHY_VERSION), build_timestamp_text()));
++#endif
+   });
+   version->setObjectName(QStringLiteral("startPanelVersion"));
+   version->setTextFormat(Qt::PlainText);
+@@ -294,10 +320,13 @@ StartPanel::StartPanel(QWidget* parent) : QWidget(parent) {
+   credit->setTextInteractionFlags(Qt::TextBrowserInteraction);
+   credit->setOpenExternalLinks(true);
+   retranslation_callbacks_.push_back([credit] {
+-    set_themed_label_text(
+-        *credit, tr("Created by %1")
+-                     .arg(QStringLiteral("<a style=\"color:@link_text; text-decoration:none;\" "
+-                                         "href=\"https://github.com/SethRobinson\">Seth A. Robinson</a>")));
++    const auto seth = QStringLiteral("<a style=\"color:@link_text; text-decoration:none;\" "
++                                     "href=\"https://github.com/SethRobinson\">Seth A. Robinson</a>");
++#ifdef Q_OS_ANDROID
++    set_themed_label_text(*credit, QStringLiteral("Patchy by %1").arg(seth));
++#else
++    set_themed_label_text(*credit, tr("Created by %1").arg(seth));
++#endif
+   });
+   add_footer_row({version, credit});
+ 

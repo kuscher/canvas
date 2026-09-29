@@ -60,13 +60,18 @@ cmd_build() {
   local multi=()
   [[ $abi == universal ]] && multi=("-DQT_ANDROID_ABIS=arm64-v8a;x86_64"
     "-DQT_PATH_ANDROID_ABI_arm64-v8a=$Q/android_arm64_v8a" "-DQT_PATH_ANDROID_ABI_x86_64=$Q/android_x86_64")
+  # Canvas's own settings, refreshed on every build so a new VERSION or resource
+  # never ships from a stale cache.
+  local canvas=(-DPATCHY_ANDROID_PACKAGE_DIR="$ROOT/android" -DPATCHY_ANDROID_NOTICES_FILE="$ROOT/THIRD_PARTY_NOTICES.md"
+    -DPATCHY_ANDROID_LOGO_FILE="$ROOT/android/brand/canvas-logo.svg"
+    -DPATCHY_ANDROID_VERSION_NAME="$VERSION_NAME" -DPATCHY_ANDROID_VERSION_CODE="$VERSION_CODE")
   if [[ ! -f $B/build.ninja ]]; then
     "$Q/android_$qabi/bin/qt-cmake" -S "$SRC" -B "$B" -G Ninja -DCMAKE_BUILD_TYPE=Release \
       -DQT_HOST_PATH="$Q/gcc_arm64" -DANDROID_SDK_ROOT="$SDK" -DANDROID_NDK_ROOT="$N" \
       -DPATCHY_BUILD_TESTS=OFF -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-      -DPATCHY_ANDROID_PACKAGE_DIR="$ROOT/android" -DPATCHY_ANDROID_NOTICES_FILE="$ROOT/THIRD_PARTY_NOTICES.md" \
-      -DPATCHY_ANDROID_VERSION_NAME="$VERSION_NAME" -DPATCHY_ANDROID_VERSION_CODE="$VERSION_CODE" \
-      "${multi[@]}" -Wno-deprecated -Wno-dev >/dev/null
+      "${canvas[@]}" "${multi[@]}" -Wno-deprecated -Wno-dev >/dev/null
+  else
+    cmake "$B" "${canvas[@]}" -Wno-dev >/dev/null
   fi
   cmake --build "$B" --target apk -j "$(nproc)"
   local unsigned

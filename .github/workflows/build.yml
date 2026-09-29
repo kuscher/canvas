@@ -112,6 +112,7 @@ jobs:
             -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             -DPATCHY_ANDROID_PACKAGE_DIR="$GITHUB_WORKSPACE/canvas/android" \
             -DPATCHY_ANDROID_NOTICES_FILE="$GITHUB_WORKSPACE/canvas/THIRD_PARTY_NOTICES.md" \
+            -DPATCHY_ANDROID_LOGO_FILE="$GITHUB_WORKSPACE/canvas/android/brand/canvas-logo.svg" \
             -DPATCHY_ANDROID_VERSION_NAME="$VERSION_NAME" \
             -DPATCHY_ANDROID_VERSION_CODE="$VERSION_CODE" \
             -Wno-deprecated -Wno-dev
