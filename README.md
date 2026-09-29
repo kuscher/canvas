@@ -1,13 +1,13 @@
 # Canvas
 
-**GIMP for Googlebooks.** The real GIMP 3.2, built for Android and shipped as one app for every
-Googlebook (Intel and Snapdragon): no Linux VM, no Termux, no root.
+**A full-featured image editor for Googlebooks.** Patchy, the open-source Photoshop-style editor, built for
+Android with Qt and shipped as one app for every Googlebook (Intel and Snapdragon).
 
 > **Status: planning.** Nothing to download yet. The plan is in [docs/PLAN.md](docs/PLAN.md), and
 > the research behind it is in [docs/research/](docs/research/).
 
-Canvas is GIMP, made by [the GIMP team](https://www.gimp.org/), built here for Googlebooks. It is
-not made or endorsed by the GIMP team.
+Canvas is built from [Patchy](https://github.com/SethRobinson/Patchy) by Seth Robinson. It is not
+made or endorsed by him.
 
 ## About this project
 
@@ -19,9 +19,8 @@ It is being developed entirely on a Googlebook, in the Googlebook's built-in Lin
 
 ## Licence
 
-Canvas's own code (the Android app around GIMP, the tools and build scripts) is under the
-[MIT licence](LICENSE). Patches to upstream projects keep those projects' licences. The app as a
-whole is GPL-3.0-or-later, because GIMP and the X server it uses are GPL-3.0; every release will
-carry the notices and the complete sources.
+Canvas's own code and patches are under the [MIT licence](LICENSE), like Patchy. The app also
+bundles Qt (LGPL-3.0), LibRaw (CDDL-1.0) and other permissively licensed libraries and fonts; every
+release will carry the notices and the sources.
 
 <sub>With a little help from Claude.</sub>
