@@ -124,6 +124,12 @@ public class CanvasActivity extends QtActivity {
     }
 
     private void applyCaption() {
+        View decor = getWindow().peekDecorView();
+        if (decor == null) {
+            // Not laid out yet (a relaunched activity can get here first): try again once it is.
+            getWindow().getDecorView().post(this::applyCaption);
+            return;
+        }
         getWindow().setBackgroundDrawable(new ColorDrawable(captionColor));
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             setTaskDescription(new ActivityManager.TaskDescription.Builder()

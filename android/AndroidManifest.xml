@@ -27,7 +27,7 @@
         android:enableOnBackInvokedCallback="false">
         <activity
             android:name="io.github.kuscher.canvas.CanvasActivity"
-            android:configChanges="orientation|uiMode|screenLayout|screenSize|smallestScreenSize|layoutDirection|locale|fontScale|keyboard|keyboardHidden|navigation|mcc|mnc|density"
+            android:configChanges="orientation|uiMode|screenLayout|screenSize|smallestScreenSize|layoutDirection|locale|fontScale|keyboard|keyboardHidden|navigation|mcc|mnc|density|colorMode|fontWeightAdjustment|grammaticalGender|touchscreen"
             android:label="@string/app_name"
             android:launchMode="singleTask"
             android:resizeableActivity="true"
