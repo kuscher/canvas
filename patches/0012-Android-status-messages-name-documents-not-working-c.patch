@@ -1,0 +1,92 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Alexander <4418484+kuscher@users.noreply.github.com>
+Date: Tue, 29 Sep 2026 08:11:53 +0000
+Subject: [PATCH 12/12] Android: status messages name documents, not working
+ copies
+
+"Saved <app-internal path>" becomes "Saved Downloads > photo.psd": the
+status bar's messages are rewritten when they name a working copy.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/app/main.cpp          |  1 +
+ src/ui/android_window.cpp | 24 ++++++++++++++++++++++++
+ src/ui/android_window.hpp |  5 +++++
+ 3 files changed, 30 insertions(+)
+
+diff --git a/src/app/main.cpp b/src/app/main.cpp
+index 43c6eec..de3fcfd 100644
+--- a/src/app/main.cpp
++++ b/src/app/main.cpp
+@@ -808,6 +808,7 @@ int main(int argc, char* argv[]) {
+ 
+ #ifdef Q_OS_ANDROID
+   patchy::ui::android_window::put_menu_bar_in_caption(window);
++  patchy::ui::android_window::show_document_names_in_status_bar(window);
+ #endif
+   window.show();
+   if (stress_mode) {
+diff --git a/src/ui/android_window.cpp b/src/ui/android_window.cpp
+index 0b5d722..8a7cd50 100644
+--- a/src/ui/android_window.cpp
++++ b/src/ui/android_window.cpp
+@@ -1,5 +1,6 @@
+ #include "ui/android_window.hpp"
+ 
++#include "ui/dialog_utils_android.hpp"
+ #include "ui/theme_manager.hpp"
+ #include "ui/theme_palette.hpp"
+ 
+@@ -11,6 +12,8 @@
+ #include <QMainWindow>
+ #include <QMenuBar>
+ #include <QPointer>
++#include <QRegularExpression>
++#include <QStatusBar>
+ #include <QTimer>
+ 
+ #include <array>
+@@ -98,6 +101,27 @@ class CaptionMenuBar final : public QObject {
+ 
+ }  // namespace
+ 
++void show_document_names_in_status_bar(QMainWindow& window) {
++  auto* bar = window.statusBar();
++  const auto root = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + QStringLiteral("/documents/");
++  QObject::connect(bar, &QStatusBar::messageChanged, bar, [bar, root](const QString& message) {
++    if (!message.contains(root)) {
++      return;
++    }
++    static const QRegularExpression working_copy(QRegularExpression::escape(root) +
++                                                 QStringLiteral("[0-9a-f]+/[^/\\n]+?\\.[A-Za-z0-9]{1,5}(?=[.,;:]?(\\s|$))"));
++    QString rewritten = message;
++    auto matches = working_copy.globalMatch(message);
++    while (matches.hasNext()) {
++      const auto path = matches.next().captured(0);
++      rewritten.replace(path, android_files::display_path(path));
++    }
++    if (rewritten != message) {
++      bar->showMessage(rewritten);
++    }
++  });
++}
++
+ void put_menu_bar_in_caption(QMainWindow& window) {
+   new CaptionMenuBar(window);
+ }
+diff --git a/src/ui/android_window.hpp b/src/ui/android_window.hpp
+index 0b804d7..f44440a 100644
+--- a/src/ui/android_window.hpp
++++ b/src/ui/android_window.hpp
+@@ -18,6 +18,11 @@ namespace patchy::ui::android_window {
+ // caption as the window changes; without a caption the menu bar is left as is.
+ void put_menu_bar_in_caption(QMainWindow& window);
+ 
++// Status bar messages name files by path ("Saved <path>"); rewrites a working
++// copy's app-internal path to where its document lives ("Saved Downloads >
++// photo.psd").
++void show_document_names_in_status_bar(QMainWindow& window);
++
+ // File > Print: writes the page as a PDF (write_print_pdf) on the locale's
+ // paper (A4, or Letter where inches rule), turned to the document's
+ // orientation, and opens Android's print dialog with it. Returns false when
