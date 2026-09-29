@@ -1,0 +1,36 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Alexander <4418484+kuscher@users.noreply.github.com>
+Date: Tue, 29 Sep 2026 09:48:23 +0000
+Subject: [PATCH 13/13] Android: menus in the caption only when there is a
+ caption
+
+Full screen (a tablet, a full-screen window) has no caption bar to share:
+the content keeps clear of the status bar again.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/ui/android_window.cpp | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/src/ui/android_window.cpp b/src/ui/android_window.cpp
+index 8a7cd50..679cfdb 100644
+--- a/src/ui/android_window.cpp
++++ b/src/ui/android_window.cpp
+@@ -50,7 +50,6 @@ std::array<int, 3> caption_layout() {
+ class CaptionMenuBar final : public QObject {
+  public:
+   explicit CaptionMenuBar(QMainWindow& window) : QObject(&window), window_(&window) {
+-    window.setAttribute(Qt::WA_ContentsMarginsRespectsSafeArea, false);
+     window.installEventFilter(this);
+     // The caption is measured after Android lays the window out; check again shortly.
+     for (const int delay : {0, 300, 1000}) {
+@@ -77,6 +76,9 @@ class CaptionMenuBar final : public QObject {
+     auto* bar = window_->menuBar();
+     const auto [height, left, right] = caption_layout();
+     const double ratio = window_->devicePixelRatio();
++    // Only a desktop window has a caption to share; full screen (a tablet, or a
++    // full-screen window) keeps the content clear of the status bar.
++    window_->setAttribute(Qt::WA_ContentsMarginsRespectsSafeArea, height <= 0);
+     QString style;
+     if (height > 0 && ratio > 0.0) {
+       const int h = static_cast<int>(std::lround(height / ratio));

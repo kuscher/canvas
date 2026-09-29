@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Alexander <4418484+kuscher@users.noreply.github.com>
 Date: Tue, 29 Sep 2026 07:37:57 +0000
-Subject: [PATCH 09/12] Android: Fusion under Patchy's style, like the Linux
+Subject: [PATCH 09/13] Android: Fusion under Patchy's style, like the Linux
  build
 
 Qt's default base style on Android is its "android" style, which Patchy's
