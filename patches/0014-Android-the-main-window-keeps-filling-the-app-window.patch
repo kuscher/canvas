@@ -1,0 +1,99 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Alexander <4418484+kuscher@users.noreply.github.com>
+Date: Tue, 29 Sep 2026 13:43:33 +0000
+Subject: [PATCH 14/14] Android: the main window keeps filling the app window
+
+Dragging the window by its caption makes Qt for Android drop the main window
+to the normal state, where it shrinks to its normal size and floats inside
+the app window with empty space around it; Qt only sizes a maximized window
+when it is shown. The state and the geometry are put back whenever they
+drift. Patchy's clamp-to-screen (after a dock grows the window) and Window >
+Set Screen Size, which would do the same, are off on Android.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/ui/android_window.cpp            | 26 ++++++++++++++++++++++++++
+ src/ui/main_window_actions_menus.cpp |  4 ++++
+ src/ui/main_window_chrome.cpp        |  6 ++++++
+ 3 files changed, 36 insertions(+)
+
+diff --git a/src/ui/android_window.cpp b/src/ui/android_window.cpp
+index 679cfdb..f7e1361 100644
+--- a/src/ui/android_window.cpp
++++ b/src/ui/android_window.cpp
+@@ -15,6 +15,7 @@
+ #include <QRegularExpression>
+ #include <QStatusBar>
+ #include <QTimer>
++#include <QScreen>
+ 
+ #include <array>
+ #include <cmath>
+@@ -65,10 +66,35 @@ class CaptionMenuBar final : public QObject {
+       QTimer::singleShot(0, this, [this] { update(); });
+       QTimer::singleShot(400, this, [this] { update(); });
+     }
++    if (watched == window_ && (event->type() == QEvent::WindowStateChange || event->type() == QEvent::Move ||
++                               event->type() == QEvent::Resize)) {
++      QTimer::singleShot(0, this, [this] { keep_filling(); });
++    }
+     return QObject::eventFilter(watched, event);
+   }
+ 
+  private:
++  // The main window fills the app's window. Dragging the window by its caption
++  // makes Qt for Android drop it to the normal state, where it shrinks to its
++  // normal size and floats inside the app window, and Qt only sizes a maximized
++  // window when it is shown: put the state and the geometry back.
++  void keep_filling() {
++    if (window_ == nullptr || !window_->isVisible() || window_->screen() == nullptr) {
++      return;
++    }
++    const auto state = window_->windowState();
++    if ((state & (Qt::WindowFullScreen | Qt::WindowMinimized)) != 0) {
++      return;
++    }
++    if ((state & Qt::WindowMaximized) == 0) {
++      window_->setWindowState(state | Qt::WindowMaximized);
++    }
++    const QRect available = window_->screen()->availableGeometry();
++    if (available.isValid() && window_->geometry() != available) {
++      window_->setGeometry(available);
++    }
++  }
++
+   void update() {
+     if (window_ == nullptr) {
+       return;
+diff --git a/src/ui/main_window_actions_menus.cpp b/src/ui/main_window_actions_menus.cpp
+index 2e99ec4..a43c824 100644
+--- a/src/ui/main_window_actions_menus.cpp
++++ b/src/ui/main_window_actions_menus.cpp
+@@ -1848,6 +1848,10 @@ void MainWindow::build_menu_bar_actions(ActionBuildContext& ctx) {
+ 
+   auto* screen_size_menu = window_menu->addMenu(tr("Set Screen Size"));
+   screen_size_menu->setObjectName(QStringLiteral("windowSetScreenSizeMenu"));
++#ifdef Q_OS_ANDROID
++  // The system sizes an Android app's window; the main window always fills it.
++  screen_size_menu->menuAction()->setVisible(false);
++#endif
+   struct ScreenSizePreset {
+     int width;
+     int height;
+diff --git a/src/ui/main_window_chrome.cpp b/src/ui/main_window_chrome.cpp
+index 17165ec..5a56989 100644
+--- a/src/ui/main_window_chrome.cpp
++++ b/src/ui/main_window_chrome.cpp
+@@ -747,6 +747,12 @@ void MainWindow::ensure_native_resizable_frame() {
+ }
+ 
+ void MainWindow::clamp_window_to_available_screen() {
++#ifdef Q_OS_ANDROID
++  // Android: the main window always fills the app's window (maximized). Moving or resizing it
++  // here would drop it out of that state, leaving it floating at its normal size inside the
++  // app window with empty space around it.
++  return;
++#endif
+   // A large interface scale (QT_SCALE_FACTOR) shrinks the logical desktop, so the default window
+   // can be larger than the screen or land partly off it. Shrink to fit and nudge it fully on-screen.
+   const QScreen* target_screen = screen();

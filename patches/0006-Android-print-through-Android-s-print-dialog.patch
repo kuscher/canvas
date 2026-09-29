@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Alexander <4418484+kuscher@users.noreply.github.com>
 Date: Tue, 29 Sep 2026 06:54:57 +0000
-Subject: [PATCH 06/13] Android: print through Android's print dialog
+Subject: [PATCH 06/14] Android: print through Android's print dialog
 
 Qt has no printer drivers on Android, so File > Print writes the page as a
 PDF with Patchy's own placement (actual size, or fit when that overflows)
