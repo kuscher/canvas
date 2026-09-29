@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Alexander <4418484+kuscher@users.noreply.github.com>
 Date: Tue, 29 Sep 2026 06:41:24 +0000
-Subject: [PATCH 1/8] Android: build Patchy as a Qt for Android app
+Subject: [PATCH 1/9] Android: build Patchy as a Qt for Android app
 
 A qt_add_executable target on Android (cmake/patchy_android.cmake) whose
 fonts, translations and bundled scripts ride along as Qt resources, since

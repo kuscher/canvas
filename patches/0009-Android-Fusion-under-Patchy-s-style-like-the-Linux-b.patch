@@ -1,0 +1,34 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Alexander <4418484+kuscher@users.noreply.github.com>
+Date: Tue, 29 Sep 2026 07:37:57 +0000
+Subject: [PATCH 9/9] Android: Fusion under Patchy's style, like the Linux
+ build
+
+Qt's default base style on Android is its "android" style, which Patchy's
+stylesheets don't target (spin boxes drew no text). Fusion is what the
+Linux build gets.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/app/main.cpp | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/src/app/main.cpp b/src/app/main.cpp
+index 7681374..1417a6d 100644
+--- a/src/app/main.cpp
++++ b/src/app/main.cpp
+@@ -401,7 +401,14 @@ int main(int argc, char* argv[]) {
+   QGuiApplication::setDesktopFileName(QStringLiteral("com.rtsoft.patchy"));
+ #endif
+   // Slider grooves snap to the click; tool flyouts open on a short hold (see the style above).
++#ifdef Q_OS_ANDROID
++  // On Android the default base style is Qt's "android" style, which Patchy's
++  // stylesheets don't target (its spin boxes draw no text); Fusion is what the
++  // Linux build gets.
++  app.setStyle(new InteractionHintsStyle(QStringLiteral("Fusion")));
++#else
+   app.setStyle(new InteractionHintsStyle);
++#endif
+   app.setApplicationName(QStringLiteral("Patchy"));
+   app.setApplicationVersion(QStringLiteral(PATCHY_VERSION));
+   // Keep the internal app identity for settings without letting Qt append " - Patchy" to every native window title.

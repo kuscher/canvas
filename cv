@@ -103,6 +103,14 @@ case ${1:-help} in
   start) adb_ shell am start --user current -n "$PKG/$ACTIVITY" ;;
   stop) adb_ shell am force-stop --user current "$PKG" ;;
   logs) pid=$(adb_ shell pidof "$PKG" || true); [[ -n $pid ]] || die "not running"; adb_ logcat --pid="$pid" ;;
-  shot) mkdir -p build/shots; adb_ exec-out screencap -p > "build/shots/${2:-shot}.png"; echo "build/shots/${2:-shot}.png" ;;
+  shot) # the Canvas window only, never the rest of the screen
+    mkdir -p build/shots
+    frame=$(adb_ shell dumpsys window windows | sed -n "/Window{[0-9a-f]* u[0-9]* $PKG\//,/Window #/p" |
+      sed -n 's/.* frame=\[\([0-9]*\),\([0-9]*\)\]\[\([0-9]*\),\([0-9]*\)\].*/\1 \2 \3 \4/p' | head -1)
+    [[ -n $frame ]] || die "no Canvas window on screen"
+    adb_ exec-out screencap -p | python3 -c "import io,sys; from PIL import Image
+im = Image.open(io.BytesIO(sys.stdin.buffer.read())); im.crop(tuple(map(int, sys.argv[2:6]))).save(sys.argv[1])" \
+      "build/shots/${2:-shot}.png" $frame
+    echo "build/shots/${2:-shot}.png" ;;
   *) sed -n '3,16p' "$0" | sed 's/^# \{0,1\}//' ;;
 esac
