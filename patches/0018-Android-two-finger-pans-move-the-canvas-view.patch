@@ -1,0 +1,107 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Alexander <4418484+kuscher@users.noreply.github.com>
+Date: Tue, 29 Sep 2026 16:15:54 +0000
+Subject: [PATCH 18/19] Android: two-finger pans move the canvas view
+
+Two-finger drags on the touchscreen and two-finger scrolls on a
+trackpad moved the view through wheel events, which Patchy's canvas
+turns into zoom steps by default (and pans along one axis only), so a
+pan zoomed and a pinch overshot. They now move the view directly
+(CanvasWidget::pan_view_by, clamped like any pan); over other widgets
+they still scroll with pixel-delta wheel events. The mouse wheel keeps
+Patchy's behaviour.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/ui/android_window.cpp     | 14 +++++++++++---
+ src/ui/android_window.hpp     |  6 ++++--
+ src/ui/canvas_widget.hpp      |  3 +++
+ src/ui/canvas_widget_view.cpp | 13 +++++++++++++
+ 4 files changed, 31 insertions(+), 5 deletions(-)
+
+diff --git a/src/ui/android_window.cpp b/src/ui/android_window.cpp
+index da8fb15..f968d6e 100644
+--- a/src/ui/android_window.cpp
++++ b/src/ui/android_window.cpp
+@@ -1,5 +1,6 @@
+ #include "ui/android_window.hpp"
+ 
++#include "ui/canvas_widget.hpp"
+ #include "ui/dialog_utils_android.hpp"
+ #include "ui/theme_manager.hpp"
+ #include "ui/theme_palette.hpp"
+@@ -235,9 +236,16 @@ void deliver_pan(float x, float y, float dx, float dy) {
+   if (widget == nullptr) {
+     return;
+   }
+-  const auto delta = logical_point(dx, dy).toPoint();
+-  QWheelEvent event(widget->mapFromGlobal(global), global, delta, delta * 2, Qt::NoButton, Qt::NoModifier,
+-                    Qt::ScrollUpdate, false, Qt::MouseEventSynthesizedByApplication);
++  const auto delta = logical_point(dx, dy);
++  for (auto* w = widget; w != nullptr; w = w->parentWidget()) {
++    if (auto* canvas = qobject_cast<CanvasWidget*>(w)) {
++      canvas->pan_view_by(delta);
++      return;
++    }
++  }
++  // Elsewhere (a panel's list, say) two fingers scroll like a trackpad.
++  QWheelEvent event(widget->mapFromGlobal(global), global, delta.toPoint(), delta.toPoint() * 2, Qt::NoButton,
++                    Qt::NoModifier, Qt::ScrollUpdate, false, Qt::MouseEventSynthesizedByApplication);
+   QCoreApplication::sendEvent(widget, &event);
+ }
+ 
+diff --git a/src/ui/android_window.hpp b/src/ui/android_window.hpp
+index 457a9af..66ffb45 100644
+--- a/src/ui/android_window.hpp
++++ b/src/ui/android_window.hpp
+@@ -29,8 +29,10 @@ void show_document_names_in_status_bar(QMainWindow& window);
+ void add_appearance_menu(QMainWindow& window);
+ 
+ // Pinch and pan from CanvasGestures (Java): trackpad pinches and two-finger
+-// touchscreen gestures become Patchy's native zoom gesture (as macOS trackpads
+-// send) and pixel-delta wheel events (a pan) on the widget under the fingers.
++// touchscreen pinches become Patchy's native zoom gesture (as macOS trackpads
++// send); two-finger drags and trackpad scrolls move the canvas view (and
++// scroll other widgets with pixel-delta wheel events). Patchy's own wheel
++// handling is left to the mouse wheel, where it zooms by default.
+ void route_gestures_to_widgets();
+ 
+ // Keeps open menus and other popups in front. Qt for Android stacks its
+diff --git a/src/ui/canvas_widget.hpp b/src/ui/canvas_widget.hpp
+index c4b61e5..af29955 100644
+--- a/src/ui/canvas_widget.hpp
++++ b/src/ui/canvas_widget.hpp
+@@ -429,6 +429,9 @@ public:
+   void set_tiling_preview_enabled(bool enabled);
+   [[nodiscard]] bool tiling_preview_enabled() const noexcept;
+   void zoom_at_widget_point(QPointF widget_position, double factor);
++  // Moves the view by delta widget pixels (the document follows), as a
++  // two-finger drag or trackpad scroll does; clamped like any pan.
++  void pan_view_by(QPointF delta);
+   void set_wheel_zooms(bool enabled) noexcept;
+   [[nodiscard]] bool wheel_zooms() const noexcept;
+   void refresh_tool_cursor();
+diff --git a/src/ui/canvas_widget_view.cpp b/src/ui/canvas_widget_view.cpp
+index 7165256..6aec72f 100644
+--- a/src/ui/canvas_widget_view.cpp
++++ b/src/ui/canvas_widget_view.cpp
+@@ -187,6 +187,19 @@ void CanvasWidget::zoom_at_widget_point(QPointF widget_position, double factor)
+   notify_view_changed();
+ }
+ 
++void CanvasWidget::pan_view_by(QPointF delta) {
++  if (delta.isNull()) {
++    return;
++  }
++  const auto old_pan = pan_;
++  pan_ += delta;
++  constrain_pan();
++  if (pan_ != old_pan) {
++    update();
++    notify_view_changed();
++  }
++}
++
+ void CanvasWidget::fit_to_view() {
+   if (document_ == nullptr || document_->width() <= 0 || document_->height() <= 0 || width() <= 0 || height() <= 0) {
+     return;

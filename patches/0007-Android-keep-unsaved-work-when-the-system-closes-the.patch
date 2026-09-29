@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Alexander <4418484+kuscher@users.noreply.github.com>
 Date: Tue, 29 Sep 2026 06:57:10 +0000
-Subject: [PATCH 07/17] Android: keep unsaved work when the system closes the
+Subject: [PATCH 07/19] Android: keep unsaved work when the system closes the
  app
 
 Android can stop a background app, or close its window, without Patchy's

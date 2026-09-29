@@ -12,8 +12,13 @@ import java.util.ArrayList;
  * Pinch and pan for Patchy's canvas, which Qt for Android doesn't provide:
  *
  * - Trackpad pinch: Android reports it as MotionEvents classified
- *   CLASSIFICATION_PINCH with a per-event scale factor. They become Patchy's
+ *   CLASSIFICATION_PINCH with a per-sample scale factor. They become Patchy's
  *   native zoom gesture (the one macOS trackpads send).
+ * - Trackpad two-finger scroll: Android reports it as one fake finger
+ *   (CLASSIFICATION_TWO_FINGER_SWIPE) dragging from the pointer, which Qt would
+ *   take for a touch and paint with. It pans the view instead, the content
+ *   following the fake finger as it does in scrolling views. Swipes with three
+ *   or four fingers are the system's; they never reach Qt either.
  * - Touchscreen: a first finger is held back briefly. If a second one lands in
  *   that time, both fingers pinch to zoom and move to pan; otherwise the held
  *   events go to Qt, where one finger draws as before. A second finger that
@@ -29,6 +34,8 @@ final class CanvasGestures {
 
     private static final long HOLD_MS = 90;
     private static final float TAP_SLOP_PX = 12f;
+    // MotionEvent's three- and four-finger trackpad swipe, hidden from the SDK.
+    private static final int CLASSIFICATION_MULTI_FINGER_SWIPE = 4;
 
     static native void nativeZoom(float x, float y, float factor);
     static native void nativePan(float x, float y, float dx, float dy);
@@ -44,6 +51,12 @@ final class CanvasGestures {
     private float lastX;
     private float lastY;
     private boolean trackpadPinch;
+    private float scrollAnchorX;
+    private float scrollAnchorY;
+    private float scrollX;
+    private float scrollY;
+    private double pinchTotal; // CanvasDiag
+    private int pinchSamples; // CanvasDiag
 
     CanvasGestures(Sink sink) {
         this.sink = sink;
@@ -53,6 +66,9 @@ final class CanvasGestures {
     boolean onTouch(MotionEvent event) {
         if (isTrackpadPinch(event)) {
             return onTrackpadPinch(event);
+        }
+        if (isTrackpadSwipe(event)) {
+            return onTrackpadSwipe(event);
         }
         if (!isFinger(event) && !holding && !gesture) {
             return false;
@@ -129,6 +145,41 @@ final class CanvasGestures {
                 && event.getClassification() == MotionEvent.CLASSIFICATION_PINCH;
     }
 
+    private static boolean isTrackpadSwipe(MotionEvent event) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            return false;
+        }
+        int classification = event.getClassification();
+        return classification == MotionEvent.CLASSIFICATION_TWO_FINGER_SWIPE
+                || classification == CLASSIFICATION_MULTI_FINGER_SWIPE;
+    }
+
+    private boolean onTrackpadSwipe(MotionEvent event) {
+        if (event.getClassification() != MotionEvent.CLASSIFICATION_TWO_FINGER_SWIPE) {
+            return true;
+        }
+        switch (event.getActionMasked()) {
+            case MotionEvent.ACTION_DOWN:
+                // The fake finger starts at the pointer: pan whatever is under it.
+                scrollAnchorX = scrollX = event.getX();
+                scrollAnchorY = scrollY = event.getY();
+                break;
+            case MotionEvent.ACTION_MOVE: {
+                float x = event.getX();
+                float y = event.getY();
+                if (x != scrollX || y != scrollY) {
+                    nativePan(scrollAnchorX, scrollAnchorY, x - scrollX, y - scrollY);
+                }
+                scrollX = x;
+                scrollY = y;
+                break;
+            }
+            default:
+                break;
+        }
+        return true;
+    }
+
     private boolean onTrackpadPinch(MotionEvent event) {
         int action = event.getActionMasked();
         float x = 0;
@@ -141,17 +192,34 @@ final class CanvasGestures {
         y /= event.getPointerCount();
         if (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_POINTER_DOWN) {
             if (!trackpadPinch) {
-                android.util.Log.i("CanvasDiag", "trackpad pinch starts");
+                pinchTotal = 1.0;
+                pinchSamples = 0;
             }
             trackpadPinch = true;
             lastX = x;
             lastY = y;
         } else if (action == MotionEvent.ACTION_MOVE && trackpadPinch) {
-            float factor = event.getAxisValue(MotionEvent.AXIS_GESTURE_PINCH_SCALE_FACTOR);
-            if (factor > 0f && Math.abs(factor - 1f) > 0.0005f) {
-                nativeZoom(lastX, lastY, factor);
+            // Samples that arrived within one frame are batched into one event:
+            // each carries its own step, so take them all.
+            double factor = 1.0;
+            for (int h = 0; h <= event.getHistorySize(); h++) {
+                float step = h < event.getHistorySize()
+                        ? event.getHistoricalAxisValue(MotionEvent.AXIS_GESTURE_PINCH_SCALE_FACTOR, h)
+                        : event.getAxisValue(MotionEvent.AXIS_GESTURE_PINCH_SCALE_FACTOR);
+                if (step > 0f) {
+                    factor *= step;
+                    pinchSamples++;
+                }
+            }
+            if (Math.abs(factor - 1.0) > 0.0005) {
+                pinchTotal *= factor;
+                nativeZoom(lastX, lastY, (float) factor);
             }
         } else if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+            if (trackpadPinch) {
+                android.util.Log.i("CanvasDiag", "trackpad pinch: x" + (float) pinchTotal + " over " + pinchSamples
+                        + " samples");
+            }
             trackpadPinch = false;
         }
         return true;

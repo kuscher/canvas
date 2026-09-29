@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Alexander <4418484+kuscher@users.noreply.github.com>
 Date: Tue, 29 Sep 2026 15:54:20 +0000
-Subject: [PATCH 16/17] Android: Appearance menu (Auto, Light, Dark) in the
+Subject: [PATCH 16/19] Android: Appearance menu (Auto, Light, Dark) in the
  menu bar
 
 An icon at the end of the menu bar shows the current color scheme

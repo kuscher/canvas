@@ -54,6 +54,13 @@ with Qt for Android, for Googlebooks. Plan and decisions: docs/PLAN.md. Research
   and its pointer grab; `CanvasActivity.dispatchTouchEvent` turns such a cancel into a release.
 - The HP's touchpad sends mouse-source events with a finger tool type, which Qt for Android
   routes through its touch path (clicks become touches); a real mouse goes the mouse path.
+  A two-finger trackpad scroll arrives as one fake finger dragging from the pointer
+  (CLASSIFICATION_TWO_FINGER_SWIPE) and would paint; a pinch as CLASSIFICATION_PINCH with a
+  per-sample AXIS_GESTURE_PINCH_SCALE_FACTOR, several samples batched into one event's history.
+  CanvasGestures turns both into pans and zooms; two-finger pans call CanvasWidget::pan_view_by,
+  never wheel events (Patchy's wheel zooms by default).
+- QScreen's geometry lags the platform screen's (a queued event): size the main window from
+  `screen->handle()->availableGeometry()` (android_window.cpp, links Qt6::GuiPrivate).
 
 ## Device
 
@@ -64,5 +71,8 @@ Input for tests: `input touchscreen tap/swipe/motionevent` works; `input mouse` 
 hover and real clicks, register a relative mouse with `adb shell uinput -` (JSON commands on
 stdin, kept open through a FIFO) and find the pointer by diffing two screenshots around a small
 move (screencap includes the pointer; slow moves travel about 4.4 px per count). Never park the
-pointer in a screen corner: the top-left corner opens Overview. Close a menu by choosing an
+pointer in a screen corner: the top-left corner opens Overview. uinput also makes a multi-touch
+touchscreen (INPUT_PROP_DIRECT, ABS_MT_*) and a touchpad (INPUT_PROP_POINTER + BUTTONPAD, with
+resolutions) that Android runs through its real trackpad gestures; test gestures on a new blank
+document, never on the user's. Close a menu by choosing an
 item or tapping clear of it; a "tap outside" can land on an item of a menu that is open.

@@ -1,0 +1,86 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Alexander <4418484+kuscher@users.noreply.github.com>
+Date: Tue, 29 Sep 2026 16:15:54 +0000
+Subject: [PATCH 19/19] Android: re-fit the main window to the app window's
+ current size
+
+Restoring a maximized desktop window made the main window keep the
+maximized size inside the smaller window: keep_filling() reacted to
+the resize before QScreen had caught up (its geometry arrives through
+a queued event) and set the old size, which also dropped the maximized
+state, so Qt's own re-fit skipped it. Read the size Android reported
+from the platform screen instead, and re-fit when QScreen changes too.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ CMakeLists.txt            |  7 ++++---
+ src/ui/android_window.cpp | 17 ++++++++++++++++-
+ 2 files changed, 20 insertions(+), 4 deletions(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index edbac9b..368d6e7 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -1205,9 +1205,10 @@ ${PATCHY_LUPDATE_MANIFEST_SOURCES}
+         src/ui/dialog_utils_android.hpp
+         src/ui/dialog_utils_android.cpp
+       )
+-      # QtAndroidPrivate: the activity and its new intents ("Open with").
+-      find_package(Qt6 REQUIRED COMPONENTS CorePrivate)
+-      target_link_libraries(patchy_ui PRIVATE Qt6::CorePrivate)
++      # QtAndroidPrivate: the activity and its new intents ("Open with");
++      # QPlatformScreen: the app window's current size (android_window.cpp).
++      find_package(Qt6 REQUIRED COMPONENTS CorePrivate GuiPrivate)
++      target_link_libraries(patchy_ui PRIVATE Qt6::CorePrivate Qt6::GuiPrivate)
+     endif()
+     # Same swap for the optional Qt PDF add-on: the real importer where the module exists,
+     # the stub (which reports PDF opening as unavailable) everywhere else. PDF EXPORT is
+diff --git a/src/ui/android_window.cpp b/src/ui/android_window.cpp
+index f968d6e..f170e57 100644
+--- a/src/ui/android_window.cpp
++++ b/src/ui/android_window.cpp
+@@ -25,6 +25,8 @@
+ #include <QStatusBar>
+ #include <QTimer>
+ #include <QScreen>
++#include <QtGui/private/qhighdpiscaling_p.h>
++#include <qpa/qplatformscreen.h>
+ #include <QWindow>
+ 
+ #include <array>
+@@ -58,6 +60,16 @@ std::array<int, 3> caption_layout() {
+   return layout;
+ }
+ 
++// The app window's area as Android last reported it. QScreen's copy is
++// updated by a queued event, so just after the window is restored or resized
++// it can still hold the old size while the window already has the new one.
++QRect available_geometry(QScreen& screen) {
++  if (const auto* platform = screen.handle()) {
++    return QHighDpi::fromNativePixels(platform->availableGeometry(), &screen);
++  }
++  return screen.availableGeometry();
++}
++
+ class CaptionMenuBar final : public QObject {
+  public:
+   explicit CaptionMenuBar(QMainWindow& window) : QObject(&window), window_(&window) {
+@@ -66,6 +78,9 @@ class CaptionMenuBar final : public QObject {
+     for (const int delay : {0, 300, 1000}) {
+       QTimer::singleShot(delay, this, [this] { update(); });
+     }
++    if (auto* screen = window.screen()) {
++      connect(screen, &QScreen::availableGeometryChanged, this, [this] { keep_filling(); });
++    }
+   }
+ 
+  protected:
+@@ -100,7 +115,7 @@ class CaptionMenuBar final : public QObject {
+       qWarning("CanvasDiag keep_filling: state %d -> maximized", int(state));
+       window_->setWindowState(state | Qt::WindowMaximized);
+     }
+-    const QRect available = window_->screen()->availableGeometry();
++    const QRect available = available_geometry(*window_->screen());
+     if (available.isValid() && window_->geometry() != available) {
+       qWarning("CanvasDiag keep_filling: geometry %d,%d %dx%d -> %d,%d %dx%d", window_->x(), window_->y(),
+                window_->width(), window_->height(), available.x(), available.y(), available.width(),

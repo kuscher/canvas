@@ -100,7 +100,7 @@ case ${1:-help} in
   patches) cmd_patches ;;
   build) shift; cmd_build "$@" ;;
   install) adb_ install -r "build/Canvas-${2:-arm64}.apk" ;;
-  start) adb_ shell am start --user current -n "$PKG/$ACTIVITY" ;;
+  start) adb_ shell am start --user current --windowingMode 5 -n "$PKG/$ACTIVITY" ;; # 5: a desktop window
   stop) adb_ shell am force-stop --user current "$PKG" ;;
   logs) pid=$(adb_ shell pidof "$PKG" || true); [[ -n $pid ]] || die "not running"; adb_ logcat --pid="$pid" ;;
   shot) # the Canvas window only, never the rest of the screen
