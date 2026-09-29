@@ -112,29 +112,19 @@ Googlebook's Linux Terminal, `sha256sum Canvas.apk` prints the one to compare.
   documents (and the unsaved-work recovery) inside its own app storage.
 - Uninstalling Canvas removes all of that.
 
-## What's different from Patchy on a desktop
+## To do
 
-Canvas keeps Patchy's editor as it is and hides what a Googlebook app can't do:
+- [ ] **Full-screen windows:** keep the menu bar clear of the system's app header (normal and
+  maximized windows are already fine).
+- [ ] **Screen readers:** make Canvas readable with TalkBack. Qt's accessibility bridge on Android
+  crashed the app, so it's switched off for now.
+- [ ] **Open PDFs:** Qt's PDF module isn't published for Android, so build it for Canvas or use
+  Android's own PDF renderer. Exporting PDFs already works.
+- [ ] **A smaller download:** leave out the parts of Qt that Canvas doesn't use (about 11 MB per
+  processor type).
 
-- No exporting image sequences or whole folders, and no opening folders (Android gives apps single
-  documents, not folders)
-- No window tiling or cascading, custom screen sizes or page setup (Android arranges the window and
-  the print dialog picks the paper)
-- No AI control setup and no update check (Canvas has no internet); Patchy's Windows-only 8BF
-  plug-ins and its Windows and Mac scanner import aren't part of it either
-
-## Known limitations in 0.1
-
-- **Opening PDFs** isn't available: Qt's PDF module isn't published for Android. Exporting PDFs
-  works.
-- **Screen readers** can't read Canvas yet (Qt's accessibility bridge on Android crashed the app,
-  so it's switched off for now).
-- In a **full-screen window**, the menu bar overlaps the system's app header; a normal or
-  maximized window is fine.
-- The APK is large (about 170 MB) because it carries Qt and Patchy's fonts for two processor types.
-
-Please report problems in [Issues](../../issues). Canvas's Android parts are my work, so report
-bugs here rather than to Patchy.
+Ideas and bug reports are welcome in [Issues](../../issues). Canvas's Android parts are my work,
+so report bugs here rather than to Patchy.
 
 ## How it's built
 
