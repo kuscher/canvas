@@ -62,6 +62,12 @@
             <meta-data
                 android:name="android.app.lib_name"
                 android:value="-- %%INSERT_APP_LIB_NAME%% --" />
+            <!-- Don't extract Android's native widget styling: Qt's Android platform theme
+                 would apply its palettes and fonts per widget class over Patchy's own theme
+                 (invisible text in fields, blue menu edges, off-size menu fonts). -->
+            <meta-data
+                android:name="android.app.extract_android_style"
+                android:value="none" />
             <meta-data
                 android:name="android.app.arguments"
                 android:value="-- %%INSERT_APP_ARGUMENTS%% --" />

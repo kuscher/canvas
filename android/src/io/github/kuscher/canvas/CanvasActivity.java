@@ -5,9 +5,12 @@ import android.app.ActivityManager;
 import android.graphics.drawable.ColorDrawable;
 import android.os.Build;
 import android.os.Bundle;
+import android.view.View;
 import android.view.WindowInsetsController;
 
 import org.qtproject.qt.android.bindings.QtActivity;
+
+import java.io.File;
 
 /**
  * Canvas's window: Qt's activity plus the desktop details Patchy can't reach from C++.
@@ -25,9 +28,17 @@ public class CanvasActivity extends QtActivity {
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
+        // The manifest turns Qt's extraction of Android's widget styling off, but Qt
+        // still loads a style.json an earlier build extracted; remove it first.
+        deleteTree(new File(getApplicationInfo().dataDir, "qt-reserved-files/android-style"));
         super.onCreate(savedInstanceState);
         current = this;
         applyCaption();
+        // Qt for Android aborts when an accessibility query holds its lock while the app
+        // opens a menu (see main.cpp). Keep services out of the window's content so no
+        // query can race a menu; TalkBack can't read Canvas until Qt fixes this.
+        getWindow().getDecorView().setImportantForAccessibility(
+                View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
     }
 
     @Override
@@ -36,6 +47,16 @@ public class CanvasActivity extends QtActivity {
             current = null;
         }
         super.onDestroy();
+    }
+
+    private static void deleteTree(File file) {
+        File[] children = file.listFiles();
+        if (children != null) {
+            for (File child : children) {
+                deleteTree(child);
+            }
+        }
+        file.delete();
     }
 
     /** The live activity, for the other Java helpers. */

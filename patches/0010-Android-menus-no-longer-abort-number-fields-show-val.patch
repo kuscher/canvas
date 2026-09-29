@@ -1,0 +1,188 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Alexander <4418484+kuscher@users.noreply.github.com>
+Date: Tue, 29 Sep 2026 07:59:37 +0000
+Subject: [PATCH 10/10] Android: menus no longer abort; number fields show
+ values; crisp scaling
+
+- Qt for Android's accessibility bridge holds a process-wide lock while it
+  waits for the GUI thread; a menu opening meanwhile needs the lock for its
+  surface and Qt aborts ("Failed to acquire deadlock protector for
+  QAndroidPlatformOpenGLWindow::eglSurface()"). Any enabled accessibility
+  service activates the bridge, so Qt's accessibility notifications are
+  swallowed (CanvasActivity also hides the window's content from services).
+- Qt 6.11 (qtbase 3af9fffa9) ends a styled NoButtons spin box's edit field
+  at x 0, so values drew into 1px; buttons declared on the left restore the
+  full width.
+- The device pixel ratio is rounded to a whole number (crisp 1px lines,
+  100% zoom is one image pixel per device pixel), and the sheets' font
+  sizes scale by the real density over it, so text keeps its size.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/app/main.cpp             | 31 +++++++++++++++++++++
+ src/ui/main_window_theme.cpp | 12 ++++++++
+ src/ui/theme_qss.cpp         | 53 ++++++++++++++++++++++++++++++++++++
+ 3 files changed, 96 insertions(+)
+
+diff --git a/src/app/main.cpp b/src/app/main.cpp
+index 1417a6d..d3bf0a8 100644
+--- a/src/app/main.cpp
++++ b/src/app/main.cpp
+@@ -11,6 +11,8 @@
+ #include "ui/script_engine.hpp"
+ #include "ui/single_instance.hpp"
+ #ifdef Q_OS_ANDROID
++#include <QAccessible>
++#include <QJniObject>
+ #include "ui/android_window.hpp"
+ #include "ui/dialog_utils_android.hpp"
+ #endif
+@@ -316,6 +318,22 @@ QFont application_font() {
+     font.setFamilies(families);
+   }
+   return font;
++#elif defined(Q_OS_ANDROID)
++  // Android: the system font, as large on screen as the rest of the system's text
++  // (14sp at the display's density and the user's font scale). The device pixel
++  // ratio is rounded to a whole number (see main()), so the size can't come from it.
++  auto font = QFontDatabase::systemFont(QFontDatabase::GeneralFont);
++  const QJniObject resources = QJniObject(QNativeInterface::QAndroidApplication::context())
++                                   .callObjectMethod("getResources", "()Landroid/content/res/Resources;");
++  const auto metrics = resources.callObjectMethod("getDisplayMetrics", "()Landroid/util/DisplayMetrics;");
++  const auto configuration = resources.callObjectMethod("getConfiguration", "()Landroid/content/res/Configuration;");
++  const double density = metrics.isValid() ? metrics.getField<jfloat>("density") : 0.0;
++  const double font_scale = configuration.isValid() ? configuration.getField<jfloat>("fontScale") : 1.0;
++  const double ratio = qApp->devicePixelRatio();
++  if (density > 0.0 && ratio > 0.0) {
++    font.setPixelSize(std::max(9, static_cast<int>(std::lround(14.0 * density * font_scale / ratio))));
++  }
++  return font;
+ #else
+   // macOS/Linux: the platform's default UI font at its native size (San Francisco 13pt
+   // on macOS; the fontconfig default on Linux). Forcing 9pt reads tiny there.
+@@ -381,6 +399,11 @@ int main(int argc, char* argv[]) {
+ #endif
+   apply_gui_scale_factor();
+ #ifdef Q_OS_ANDROID
++  // Whole-number device pixel ratios only: at a fractional one (the HP Googlebook's
++  // 1.125) every 1px border of Patchy's stylesheet lands between device pixels and
++  // renders soft. 1.125 rounds to 1, 1.625 to 2; Preferences > Interface scale still
++  // enlarges the UI.
++  QGuiApplication::setHighDpiScaleFactorRoundingPolicy(Qt::HighDpiScaleFactorRoundingPolicy::Round);
+   // Script sound effects play through a desktop audio program (sound_effects.cpp).
+   if (!qEnvironmentVariableIsSet("PATCHY_NO_SOUND")) {
+     qputenv("PATCHY_NO_SOUND", "1");
+@@ -447,6 +470,14 @@ int main(int argc, char* argv[]) {
+   patchy::ui::ThemeManager::instance().load_saved_preference();
+ #ifdef Q_OS_ANDROID
+   patchy::ui::android_window::follow_theme_in_caption_bar();
++  // Qt for Android's accessibility bridge answers the system on Android's UI thread
++  // while holding a process-wide lock and waiting for this thread; opening a menu
++  // (a new window) at that moment needs the same lock for its surface and Qt aborts
++  // ("Failed to acquire deadlock protector for QAndroidPlatformOpenGLWindow::
++  // eglSurface()", Qt 6.11 to dev). Any enabled accessibility service activates the
++  // bridge. Swallow Qt's accessibility notifications so it has nothing to answer;
++  // CanvasActivity also keeps services from querying the window.
++  QAccessible::installUpdateHandler([](QAccessibleEvent*) {});
+ #endif
+ 
+ #ifdef PATCHY_MCP_EXECUTABLE
+diff --git a/src/ui/main_window_theme.cpp b/src/ui/main_window_theme.cpp
+index 4546b11..82dfbc2 100644
+--- a/src/ui/main_window_theme.cpp
++++ b/src/ui/main_window_theme.cpp
+@@ -1168,6 +1168,18 @@ QString photoshop_style() {
+   auto& cached = resolved[active_color_scheme() == ColorScheme::Light ? 1 : 0];
+   if (cached.isEmpty()) {
+     cached = apply_theme_tokens(photoshop_style_template());
++#ifdef Q_OS_ANDROID
++    // Qt 6.11 and later (qtbase 3af9fffa9, "Honor horizontally aligned QSpinBox
++    // buttons") end a styled spin box's edit field at its buttons' x, which is 0
++    // when it has none, so every NoButtons box drew its value into a 1px field.
++    // Buttons declared on the left leave the field its full width.
++    cached += QStringLiteral(R"(
++    QAbstractSpinBox[buttonSymbols="NoButtons"]::up-button,
++    QAbstractSpinBox[buttonSymbols="NoButtons"]::down-button {
++      subcontrol-position: left;
++    }
++)");
++#endif
+   }
+   return cached;
+ }
+diff --git a/src/ui/theme_qss.cpp b/src/ui/theme_qss.cpp
+index 91dfd29..33f86de 100644
+--- a/src/ui/theme_qss.cpp
++++ b/src/ui/theme_qss.cpp
+@@ -1,4 +1,11 @@
+ #include "ui/theme_qss.hpp"
++#ifdef Q_OS_ANDROID
++#include <QApplication>
++#include <QJniObject>
++#include <QRegularExpression>
++
++#include <cmath>
++#endif
+ 
+ #include "ui/icon_theme.hpp"
+ 
+@@ -43,6 +50,49 @@ const QHash<QString, QColor ThemePalette::*>& role_members() {
+   return members;
+ }
+ 
++#ifdef Q_OS_ANDROID
++// Patchy's sheets size text in pixels for a desktop at 96 dpi ("font-size: 12px").
++// The Android build rounds the device pixel ratio to a whole number for crisp
++// lines (main.cpp), so scale those sizes by the display's real density (and the
++// user's font scale) over that ratio: text stays as large as on a desktop with the
++// same density, 12px -> 14px on a 1.125x Googlebook, 12px -> 10px (20 device
++// pixels) at 1.625x rounded to 2.
++double android_text_scale() {
++  static const double scale = [] {
++    const QJniObject resources = QJniObject(QNativeInterface::QAndroidApplication::context())
++                                     .callObjectMethod("getResources", "()Landroid/content/res/Resources;");
++    const auto metrics = resources.callObjectMethod("getDisplayMetrics", "()Landroid/util/DisplayMetrics;");
++    const auto configuration =
++        resources.callObjectMethod("getConfiguration", "()Landroid/content/res/Configuration;");
++    const double density = metrics.isValid() ? metrics.getField<jfloat>("density") : 0.0;
++    const double font_scale = configuration.isValid() ? configuration.getField<jfloat>("fontScale") : 1.0;
++    const double ratio = qApp != nullptr ? qApp->devicePixelRatio() : 1.0;
++    return density > 0.0 && ratio > 0.0 ? density * font_scale / ratio : 1.0;
++  }();
++  return scale;
++}
++
++QString scale_font_sizes_for_android(const QString& qss) {
++  const double scale = android_text_scale();
++  if (std::abs(scale - 1.0) < 0.01) {
++    return qss;
++  }
++  static const QRegularExpression font_size(QStringLiteral("font-size:\\s*(\\d+(?:\\.\\d+)?)px"));
++  QString scaled;
++  scaled.reserve(qss.size());
++  qsizetype copied = 0;
++  auto matches = font_size.globalMatch(qss);
++  while (matches.hasNext()) {
++    const auto match = matches.next();
++    scaled.append(QStringView(qss).sliced(copied, match.capturedStart(1) - copied));
++    scaled.append(QString::number(std::max(8L, std::lround(match.captured(1).toDouble() * scale))));
++    copied = match.capturedEnd(1);
++  }
++  scaled.append(QStringView(qss).sliced(copied));
++  return scaled;
++}
++#endif
++
+ }  // namespace
+ 
+ QString apply_theme_tokens(const QString& qss, const ThemePalette& palette) {
+@@ -87,6 +137,9 @@ QString apply_theme_tokens(const QString& qss, const ThemePalette& palette) {
+     copied = match.capturedEnd();
+   }
+   resolved.append(QStringView(source).sliced(copied));
++#ifdef Q_OS_ANDROID
++  resolved = scale_font_sizes_for_android(resolved);
++#endif
+   return resolved;
+ }
+ 
