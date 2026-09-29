@@ -1,0 +1,492 @@
+<title>Canvas Port Plan</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Source+Sans+3:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one reading column (~46rem) that widens for tables and the diagram; a checkerboard strip marks the canvas. */
+:root {
+  --bg: #f6f6f8;
+  --surface: #ffffff;
+  --ink: #1b1c22;
+  --muted: #5b5e6b;
+  --line: #dcdde4;
+  --accent: #2f4fd6;        /* ultramarine */
+  --accent-soft: #e6eafc;
+  --fg-swatch: #1b1c22;
+  --bg-swatch: #ffffff;
+  --check-a: #e3e4ea;
+  --check-b: #f6f6f8;
+  --good: #1f7a4d;
+  --good-soft: #e3f3ea;
+  --warn: #9a5b00;
+  --warn-soft: #fbf0dc;
+  --bad: #b42335;
+  --bad-soft: #fbe6e9;
+  --display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --body: "Source Sans 3", "Segoe UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #15161b; --surface: #1d1f26; --ink: #ebecf2; --muted: #a2a5b4; --line: #30333e;
+    --accent: #8ea2ff; --accent-soft: #252c4d; --fg-swatch: #ebecf2; --bg-swatch: #15161b;
+    --check-a: #262832; --check-b: #1b1c22;
+    --good: #6fd19d; --good-soft: #17301f; --warn: #f0b760; --warn-soft: #33270f; --bad: #ff8a98; --bad-soft: #3a1a20;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #15161b; --surface: #1d1f26; --ink: #ebecf2; --muted: #a2a5b4; --line: #30333e;
+  --accent: #8ea2ff; --accent-soft: #252c4d; --fg-swatch: #ebecf2; --bg-swatch: #15161b;
+  --check-a: #262832; --check-b: #1b1c22;
+  --good: #6fd19d; --good-soft: #17301f; --warn: #f0b760; --warn-soft: #33270f; --bad: #ff8a98; --bad-soft: #3a1a20;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--ink);
+  font-family: var(--body); font-size: 1.0625rem; line-height: 1.6;
+  padding-inline: 16px; padding-block: 0 4rem;
+}
+.wrap { max-width: 46rem; margin: 0 auto; }
+.wide { max-width: 62rem; margin: 0 auto; }
+h1, h2, h3 { font-family: var(--display); text-wrap: balance; line-height: 1.15; margin: 0; }
+h1 { font-size: clamp(2.4rem, 6vw, 3.6rem); font-weight: 800; letter-spacing: -0.02em; }
+h2 { font-size: 1.75rem; font-weight: 700; letter-spacing: -0.01em; }
+h3 { font-size: 1.2rem; font-weight: 700; }
+p { margin: 0; }
+a { color: var(--accent); }
+a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+code, .mono { font-family: var(--mono); font-size: 0.86em; }
+code { background: var(--accent-soft); padding: 0.05em 0.35em; border-radius: 4px; }
+.eyebrow { font-family: var(--mono); font-size: 0.75rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.muted { color: var(--muted); }
+
+/* Header: the canvas checkerboard with FG/BG swatches */
+.checker {
+  height: 18px; margin-inline: -16px;
+  background-color: var(--check-b);
+  background-image:
+    linear-gradient(45deg, var(--check-a) 25%, transparent 25%, transparent 75%, var(--check-a) 75%),
+    linear-gradient(45deg, var(--check-a) 25%, transparent 25%, transparent 75%, var(--check-a) 75%);
+  background-size: 18px 18px; background-position: 0 0, 9px 9px;
+  border-bottom: 1px solid var(--line);
+}
+header { padding-block: 3rem 2rem; display: grid; gap: 1.25rem; }
+.brand { display: flex; align-items: center; gap: 1rem; }
+.swatches { position: relative; width: 44px; height: 44px; flex: none; }
+.swatches span { position: absolute; width: 28px; height: 28px; border: 2px solid var(--ink); border-radius: 3px; }
+.swatches .fgc { background: var(--accent); top: 0; left: 0; z-index: 1; }
+.swatches .bgc { background: var(--bg-swatch); bottom: 0; right: 0; }
+.lede { font-size: 1.25rem; line-height: 1.5; max-width: 40rem; }
+.status { display: inline-flex; gap: 0.5rem; align-items: center; font-family: var(--mono); font-size: 0.8rem;
+  background: var(--warn-soft); color: var(--warn); padding: 0.3rem 0.65rem; border-radius: 999px; width: fit-content; }
+.status::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+
+section { padding-block: 2.5rem 0.5rem; display: grid; gap: 1.1rem; }
+section > .wrap, section > .wide { display: grid; gap: 1.1rem; width: 100%; }
+ul { margin: 0; padding-left: 1.2rem; display: grid; gap: 0.45rem; }
+li::marker { color: var(--muted); }
+
+/* Recommendation panel */
+.verdict { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 1.4rem 1.5rem; display: grid; gap: 0.9rem; }
+.verdict h2 { font-size: 1.5rem; }
+.pick { display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); gap: 0.75rem 1.5rem; }
+.pick div { display: grid; gap: 0.15rem; min-width: 0; }
+.pick b { font-family: var(--display); font-size: 1.1rem; }
+
+/* Version strip */
+.versions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.ver { display: grid; gap: 0.1rem; padding: 0.55rem 0.8rem; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); min-width: 7.5rem; }
+.ver b { font-family: var(--mono); font-size: 0.95rem; }
+.ver span { font-size: 0.82rem; color: var(--muted); }
+.ver.dead { opacity: 0.7; }
+.ver.pickv { border: 2px solid var(--accent); background: var(--accent-soft); }
+.ver.next { border-style: dashed; }
+
+/* Tables */
+.tscroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 0.95rem; }
+th, td { text-align: left; vertical-align: top; padding: 0.7rem 0.85rem; border-bottom: 1px solid var(--line); }
+tr:last-child td { border-bottom: 0; }
+th { font-family: var(--display); font-weight: 700; font-size: 0.95rem; }
+thead th { background: var(--bg); }
+td:first-child { font-weight: 600; white-space: nowrap; color: var(--muted); }
+.routes { min-width: 46rem; }
+.routes th.chosen, .routes td.chosen { background: var(--accent-soft); }
+.chip { display: inline-block; font-family: var(--mono); font-size: 0.72rem; padding: 0.1rem 0.45rem; border-radius: 999px; margin-right: 0.3rem; vertical-align: 1px; }
+.chip.g { background: var(--good-soft); color: var(--good); }
+.chip.w { background: var(--warn-soft); color: var(--warn); }
+.chip.b { background: var(--bad-soft); color: var(--bad); }
+.uploads td:first-child { width: 8.5rem; }
+
+/* Diagram */
+.diagram { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); padding: 1rem; }
+.diagram svg { display: block; min-width: 46rem; width: 100%; height: auto; }
+.diagram .box { fill: var(--bg); stroke: var(--line); stroke-width: 1.5; }
+.diagram .box.hi { fill: var(--accent-soft); stroke: var(--accent); }
+.diagram .apk { fill: none; stroke: var(--muted); stroke-width: 1.5; stroke-dasharray: 6 5; }
+.diagram .t { fill: var(--ink); font-family: var(--display); font-weight: 700; font-size: 16px; }
+.diagram .s { fill: var(--muted); font-family: var(--body); font-size: 13px; }
+.diagram .l { fill: var(--accent); font-family: var(--mono); font-size: 11.5px; }
+.diagram .arrow { stroke: var(--accent); stroke-width: 1.75; fill: none; }
+.diagram .link { stroke: var(--muted); stroke-width: 1.25; stroke-dasharray: 3 4; fill: none; }
+.diagram .head { fill: var(--accent); }
+
+/* Benefits / risks */
+.two { display: grid; grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr)); gap: 1rem; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 1.2rem 1.3rem; display: grid; gap: 0.7rem; align-content: start; min-width: 0; }
+.panel h3 { display: flex; gap: 0.5rem; align-items: center; }
+.dot { width: 10px; height: 10px; border-radius: 2px; flex: none; }
+
+/* Phases */
+.phases { display: grid; gap: 0; }
+.phase { display: grid; grid-template-columns: 4.2rem 1fr; gap: 1rem; padding-block: 1.1rem; border-top: 1px solid var(--line); }
+.phase:first-child { border-top: 0; }
+.pnum { font-family: var(--display); font-weight: 800; font-size: 2.2rem; line-height: 1; color: var(--accent); }
+.phase.later .pnum { color: var(--muted); }
+.pbody { display: grid; gap: 0.55rem; min-width: 0; }
+.done { font-size: 0.95rem; background: var(--good-soft); color: var(--ink); border-radius: 8px; padding: 0.55rem 0.75rem; }
+.done b { color: var(--good); }
+
+/* Questions */
+.qs { display: grid; gap: 1rem; }
+.q { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 1.2rem 1.3rem; display: grid; gap: 0.7rem; }
+.q h3 { font-size: 1.15rem; }
+.opts { display: grid; gap: 0.45rem; }
+.opt { display: grid; grid-template-columns: auto 1fr; gap: 0.6rem; align-items: baseline; }
+.opt .k { font-family: var(--mono); font-size: 0.75rem; padding: 0.1rem 0.45rem; border-radius: 4px; border: 1px solid var(--line); color: var(--muted); }
+.opt.rec .k { background: var(--accent); border-color: var(--accent); color: var(--surface); }
+footer { padding-block: 3rem 0; color: var(--muted); font-size: 0.9rem; }
+
+@media (max-width: 560px) {
+  body { font-size: 1rem; }
+  .phase { grid-template-columns: 1fr; gap: 0.4rem; }
+  td:first-child { white-space: normal; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .ver.pickv { transition: transform 0.2s; }
+  .ver.pickv:hover { transform: translateY(-2px); }
+}
+</style>
+
+<div class="checker" aria-hidden="true"></div>
+
+<header class="wrap">
+  <div class="brand">
+    <div class="swatches" aria-hidden="true"><span class="fgc"></span><span class="bgc"></span></div>
+    <span class="eyebrow">Googlebook port · proposal</span>
+  </div>
+  <h1>Canvas</h1>
+  <p class="lede">The real GIMP 3.2, built for Android and shipped as one app for every Googlebook, Intel and Snapdragon. No Linux VM, no Termux, no root. The raw port comes first. After that, three phases make it feel like it was made for the laptop.</p>
+  <span class="status">Waiting for your go-ahead · 29 Sep 2026</span>
+</header>
+
+<section>
+  <div class="wrap">
+    <div class="verdict">
+      <span class="eyebrow">The recommendation</span>
+      <h2>Build GIMP 3.2.6 natively for Android and give it its own built-in display</h2>
+      <div class="pick">
+        <div><b>GIMP 3.2.6</b><span class="muted">with GEGL 0.4.72 and babl 0.1.128, released 10 Sep 2026</span></div>
+        <div><b>Native build</b><span class="muted">About 150 libraries cross-compiled with Android's NDK, for arm64 and x86_64</span></div>
+        <div><b>Built-in X display</b><span class="muted">termux-x11's "lorie" server as a library inside the APK</span></div>
+        <div><b>One APK</b><span class="muted">Offline, no internet permission, GitHub releases</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <span class="eyebrow">Which GIMP</span>
+    <h2>3.2 is the only maintained branch</h2>
+    <div class="versions" role="list">
+      <div class="ver dead" role="listitem"><b>2.10.38</b><span>May 2024 · GTK2, no more backports</span></div>
+      <div class="ver dead" role="listitem"><b>3.0.8</b><span>Jan 2026 · the 3.0 series has ended</span></div>
+      <div class="ver" role="listitem"><b>3.2.0</b><span>Mar 2026 · what Termux ships</span></div>
+      <div class="ver pickv" role="listitem"><b>3.2.6 ★</b><span>10 Sep 2026 · Canvas targets this</span></div>
+      <div class="ver next" role="listitem"><b>3.4</b><span>In development · rebase later</span></div>
+      <div class="ver next" role="listitem"><b>GTK4</b><span>"Not yet planning" a port</span></div>
+    </div>
+    <ul>
+      <li><b>It is maintained.</b> Its 28 security fixes matter for an app that opens files from anywhere.</li>
+      <li><b>It is made for pens.</b> It has MyPaint brushes v2, pressure gain, and stylus barrel rotation (new in 3.2.6).</li>
+      <li><b>It has new tools and formats.</b> Link and vector layers, and non-destructive filters everywhere. Among the formats are APNG, JPEG 2000, PSB export, and SVG and vector PDF export.</li>
+      <li><b>It has a stable plug-in API for all of 3.x.</b> Every GIMP 3 plug-in, script and tutorial carries over.</li>
+      <li><b>Its ARM code paths are already tested upstream.</b> It has aarch64 builds for Linux (AppImage, Flatpak, Snap) and ARM64 builds for Windows and macOS.</li>
+    </ul>
+    <p class="muted">Termux builds GIMP 3.2.0 for Android phones. That proves GIMP 3.2 compiles and runs on Android's C library, and its recipes are where we start. Moving them up to 3.2.6 is part of the raw port.</p>
+  </div>
+</section>
+
+<section>
+  <div class="wide">
+    <span class="eyebrow">The route</span>
+    <h2>GTK3 can't draw on Android, so Canvas brings a display</h2>
+    <p class="muted" style="max-width:46rem">GIMP is a GTK3 program. GTK4 has an Android backend, but GIMP isn't on GTK4 and has no plan to move soon. We compared four ways to get GIMP onto the screen.</p>
+    <div class="tscroll">
+      <table class="routes">
+        <thead>
+          <tr><th></th><th class="chosen">A · Native GIMP + built-in X display</th><th>B · GTK3 Broadway in a WebView</th><th>C · GTK4 Android backend</th><th>D · GIMP in the Terminal VM</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Works today</td><td class="chosen"><span class="chip g">yes</span></td><td><span class="chip w">badly</span></td><td><span class="chip b">no</span>GIMP has no GTK4 port</td><td><span class="chip g">yes</span><code>apt install gimp</code> gives 3.0.4</td></tr>
+          <tr><td>Speed</td><td class="chosen">Native CPU, frames reach the screen without copying</td><td>Every frame zlib-compressed and redrawn in JavaScript</td><td>Would be best</td><td>Software-rendered in the VM</td></tr>
+          <tr><td>Pen</td><td class="chosen">Pressure, tilt, eraser</td><td>No pressure</td><td>Yes</td><td>Unknown</td></tr>
+          <tr><td>Feels native</td><td class="chosen">A real resizable window, with more in phases 2–3</td><td>A web page pretending to be windows</td><td>Real Android windows</td><td>A window inside the Terminal</td></tr>
+          <tr><td>Shareable APK</td><td class="chosen"><span class="chip g">yes</span></td><td><span class="chip g">yes</span></td><td>n/a</td><td><span class="chip b">no</span>Needs a set-up Terminal, and stops when it closes</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3 style="margin-top:0.8rem">How route A fits together</h3>
+    <div class="diagram" role="img" aria-label="Inside Canvas.apk: the Canvas window shows frames from the lorie X server and sends it mouse, keyboard and pen input. GIMP 3.2.6 talks to the X server over a local socket and starts plug-ins over pipes and shared memory. All programs ship in the APK's native-library folder; data unpacks to app storage with links back to those programs.">
+      <svg viewBox="0 0 900 400" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="head"/>
+          </marker>
+        </defs>
+        <rect x="8" y="8" width="884" height="384" rx="14" class="apk"/>
+        <text x="26" y="34" class="l">Canvas.apk</text>
+
+        <!-- Window -->
+        <rect x="30" y="56" width="240" height="120" rx="10" class="box hi"/>
+        <text x="48" y="86" class="t">Canvas window</text>
+        <text x="48" y="108" class="s">The Googlebook window you</text>
+        <text x="48" y="126" class="s">resize, snap and close</text>
+        <text x="48" y="154" class="l">Activity · SurfaceView</text>
+
+        <!-- X server -->
+        <rect x="330" y="56" width="240" height="120" rx="10" class="box"/>
+        <text x="348" y="86" class="t">X server (lorie)</text>
+        <text x="348" y="108" class="s">From termux-x11, runs in</text>
+        <text x="348" y="126" class="s">Canvas's own process</text>
+        <text x="348" y="154" class="l">RandR follows window size</text>
+
+        <!-- GIMP -->
+        <rect x="630" y="56" width="240" height="120" rx="10" class="box hi"/>
+        <text x="648" y="86" class="t">GIMP 3.2.6</text>
+        <text x="648" y="108" class="s">GTK3 · GEGL · babl, in</text>
+        <text x="648" y="126" class="s">single-window mode</text>
+        <text x="648" y="154" class="l">all CPU cores</text>
+
+        <!-- Plug-ins -->
+        <rect x="630" y="222" width="240" height="72" rx="10" class="box"/>
+        <text x="648" y="250" class="t">~120 plug-ins</text>
+        <text x="648" y="272" class="s">Formats, filters, Script-Fu, Python</text>
+
+        <!-- arrows window <-> X -->
+        <line x1="274" y1="96" x2="326" y2="96" class="arrow" marker-end="url(#ah)"/>
+        <line x1="326" y1="136" x2="274" y2="136" class="arrow" marker-end="url(#ah)"/>
+        <text x="278" y="88" class="l">input</text>
+        <text x="278" y="152" class="l">frames</text>
+
+        <!-- X <-> GIMP -->
+        <line x1="574" y1="116" x2="626" y2="116" class="arrow" marker-start="url(#ah)" marker-end="url(#ah)"/>
+        <text x="578" y="108" class="l">X11</text>
+
+        <!-- GIMP <-> plug-ins -->
+        <line x1="750" y1="180" x2="750" y2="218" class="arrow" marker-start="url(#ah)" marker-end="url(#ah)"/>
+        <text x="760" y="204" class="l">pipes + shm</text>
+
+        <!-- storage band -->
+        <rect x="30" y="318" width="400" height="58" rx="10" class="box"/>
+        <text x="48" y="342" class="t" style="font-size:14px">Native-library folder (read-only)</text>
+        <text x="48" y="362" class="s">Every program and library as lib*.so</text>
+        <rect x="470" y="318" width="400" height="58" rx="10" class="box"/>
+        <text x="488" y="342" class="t" style="font-size:14px">App storage (unpacked once)</text>
+        <text x="488" y="362" class="s">Brushes, icons, themes, Python, translations</text>
+        <line x1="466" y1="347" x2="434" y2="347" class="link" marker-end="url(#ah)"/>
+        <text x="428" y="310" class="l">links</text>
+        <text x="30" y="306" class="l" style="fill:var(--muted)">Android runs code only from the native-library folder</text>
+      </svg>
+    </div>
+    <ul style="max-width:46rem">
+      <li><b>The display.</b> termux-x11's X server became an embeddable Android library on 24 July 2026. It draws through AHardwareBuffers into a SurfaceView and resizes the X screen along with the window. It presents Android pens to GIMP as pressure, tilt and eraser devices, the same way a Wacom tablet shows up on Linux.</li>
+      <li><b>The build.</b> Everything is compiled from source: GIMP, GEGL, babl, GTK3, Python and the file-format libraries. It uses Termux's Android recipes under Canvas's own app ID, in GitHub Actions on x86_64 runners, for both chips.</li>
+      <li><b>Googlebooks run you as Android user 10.</b> Termux refuses to run there, because its paths assume user 0, so its ready-made packages can't be reused. Canvas builds its own folder tree inside its data folder and sets GIMP's relocation variables at launch.</li>
+      <li><b>Programs live in the native-library folder.</b> Since Android 10, apps may not run programs from their writable storage, and GIMP starts every plug-in as its own program. So every program and library ships as <code>lib*.so</code> inside the APK.</li>
+      <li><b>Least privilege.</b> There's no internet permission; GIMP's update check is compiled out, and Help opens in the browser. Shortcuts work through Android 17's <code>CAPTURE_KEYBOARD</code>, which is a normal permission. The X server's optional accessibility key interceptor is removed: it watches all input, and Play Protect blocks sideloaded apps that ask for it.</li>
+    </ul>
+  </div>
+</section>
+
+<section>
+  <div class="wide">
+    <div class="two">
+      <div class="panel">
+        <h3><span class="dot" style="background:var(--good)"></span>Why this route</h3>
+        <ul>
+          <li><b>It's the real GIMP.</b> Every tool, filter, plug-in, script, format and shortcut, not a lookalike.</li>
+          <li><b>It runs at native speed.</b> GIMP works on the CPU with GEGL across all cores. Nothing is emulated or virtualised.</li>
+          <li><b>The pen works from day one.</b> Pressure, tilt and eraser reach GIMP like a Wacom does on Linux.</li>
+          <li><b>One APK covers every Googlebook.</b> It works offline and installs like any other app.</li>
+          <li><b>Nothing gets thrown away.</b> Every later phase builds on this base. If GIMP moves to GTK4, the build tree carries over to route C.</li>
+        </ul>
+      </div>
+      <div class="panel">
+        <h3><span class="dot" style="background:var(--warn)"></span>What it costs</h3>
+        <ul>
+          <li><b>A big build.</b> About 150 libraries for each of 2 chips. A cold CI build takes hours; cached rebuilds take minutes.</li>
+          <li><b>A big APK.</b> An estimated 250–350 MB for one universal APK; Krita's Android APKs are 168–179 MB per chip. If that's too big, we add per-chip APKs.</li>
+          <li><b>3.2.0 → 3.2.6.</b> Termux's patches stop at 3.2.0, so moving up is our work.</li>
+          <li><b>Android gaps to fill.</b> There's no System V shared memory (a shim covers it). GTK3 only scales by whole numbers, so the 1.125× panel scales text through DPI instead. Android 17 caps app memory, so big images need GEGL tuned.</li>
+          <li><b>Nothing goes upstream.</b> GIMP doesn't accept AI-assisted contributions, so Canvas's patches stay in Canvas.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <span class="eyebrow">Phases</span>
+    <h2>Raw port first, then make it feel native</h2>
+    <div class="phases">
+      <div class="phase">
+        <div class="pnum">0</div>
+        <div class="pbody">
+          <h3>Foundations and a first window</h3>
+          <ul>
+            <li>Set up the repo, the <code>./cv</code> helper, CI, and the signing key (outside git, backed up privately).</li>
+            <li>Pin termux-packages and termux-x11. A CI job builds the GTK3 stack for arm64 under Canvas's own paths and caches it per chip.</li>
+            <li>Build the Android shell: the window with lorie's view, the unpacker and the launcher. The X server's accessibility service, internet permission and open TCP port are stripped out.</li>
+          </ul>
+          <p class="done"><b>Done when</b> the GTK3 demo runs inside a Canvas APK on your HP, follows window resizes, and takes mouse and keyboard input.</p>
+        </div>
+      </div>
+      <div class="phase">
+        <div class="pnum">1</div>
+        <div class="pbody">
+          <h3>The raw port → v0.1</h3>
+          <ul>
+            <li><b>The whole of GIMP 3.2.6</b> with GEGL and babl.</li>
+            <li><b>File formats:</b> PNG, JPEG, TIFF, WebP, HEIF/AVIF, JPEG XL, OpenEXR, PDF, PostScript, SVG, PSD and XCF.</li>
+            <li><b>All plug-ins,</b> including Script-Fu and Python 3.</li>
+            <li><b>Input:</b> pen pressure, tilt and eraser; right-click; wheel and trackpad scrolling; shortcuts; text copy and paste with Android.</li>
+            <li><b>Window:</b> fills the Canvas window and follows resizes. Text and icon sizes come from the screen density. Closing the window runs GIMP's own quit, so unsaved images still ask.</li>
+            <li><b>Both chips:</b> arm64 tested on the HP, x86_64 on the ASUS, plus a CI smoke test.</li>
+            <li><b>Licences:</b> notices, an About &amp; licences page, and full sources with the release.</li>
+          </ul>
+          <p class="done"><b>Done when</b> you can do all of this on both Googlebooks: open a JPEG, PNG, PSD and XCF; paint with pressure; add a non-destructive filter; run a Script-Fu and a Python plug-in; export; quit, restart and find your settings kept.</p>
+        </div>
+      </div>
+      <div class="phase later">
+        <div class="pnum">2</div>
+        <div class="pbody">
+          <h3>At home on a Googlebook</h3>
+          <ul>
+            <li><b>Look:</b> a Canvas theme that follows the system's light and dark setting and uses system fonts, a matching caption bar, and crisp high-density icons.</li>
+            <li><b>Files and sharing:</b> Android's own picker for Open, Save and Export; Share and "Export to…"; recent files and launcher shortcuts.</li>
+            <li><b>Clipboard and printing:</b> images on the clipboard both ways, drag-and-drop from Files, and Android's print dialog.</li>
+            <li><b>Trackpad:</b> pinch to zoom, two-finger pan and rotate.</li>
+            <li><b>Speed and safety:</b> a fast start with caches ready, autosave when Android closes the app, and a Meta + / shortcut helper.</li>
+            <li><b>Second accounts:</b> full relocation, so other accounts on the same Googlebook can use Canvas too.</li>
+          </ul>
+        </div>
+      </div>
+      <div class="phase later">
+        <div class="pnum">3</div>
+        <div class="pbody">
+          <h3>Many windows, better pen</h3>
+          <ul>
+            <li>GIMP's dialogs and multi-window mode as real Googlebook windows, each with its own taskbar entry and snapping.</li>
+            <li>Lower pen latency, barrel-button mapping, and a pen settings page.</li>
+            <li>SIMD speed-ups for arm64, and GPU presentation.</li>
+          </ul>
+        </div>
+      </div>
+      <div class="phase later">
+        <div class="pnum">4</div>
+        <div class="pbody">
+          <h3>Follow upstream</h3>
+          <ul>
+            <li>Rebase onto GIMP 3.4 when it ships, for its new project format and native file choosers.</li>
+            <li>When GIMP moves to GTK4, switch to GTK4's own Android backend: real Android windows, the system file picker and IME, and no X server.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wide">
+    <span class="eyebrow">Repos, builds and uploads</span>
+    <h2>Where everything lives</h2>
+    <div class="tscroll">
+      <table class="uploads">
+        <tbody>
+          <tr><td>Source</td><td><code>~/canvas</code> → <a href="https://github.com/kuscher/canvas">github.com/kuscher/canvas</a>. Created today, private, holding this plan and the research.</td></tr>
+          <tr><td>Helper</td><td><code>./cv ci | fetch | install | start | logs | shot | release [--publish]</code></td></tr>
+          <tr><td>CI</td><td>GitHub Actions on ubuntu-24.04 x86_64, with four jobs: dependencies (per chip, cached), GIMP, the APK (Gradle and lorie's CMake), and an x86_64 emulator smoke test. CI makes an unsigned APK, and <code>./cv fetch</code> signs it.</td></tr>
+          <tr><td>Signing key</td><td><code>~/.config/canvas/keystore.jks</code> and <code>keystore.pass</code>, never in git. The keystore is backed up to a private folder, with a README. The password goes in your password manager.</td></tr>
+          <tr><td>Releases</td><td>
+            <ul>
+              <li><code>Canvas.apk</code>, with a stable name so <code>releases/latest/download/Canvas.apk</code> always works.</li>
+              <li><code>Canvas-&lt;v&gt;-source.tar.gz</code>: this repo, its patches and the pinned upstream versions.</li>
+              <li><code>Canvas-&lt;v&gt;-third-party-sources.tar</code>: every upstream source the APK is built from, as the GPL asks.</li>
+              <li><code>SHA256SUMS</code>.</li>
+              <li>Release notes from <code>CHANGELOG.md</code>.</li>
+            </ul>
+          </td></tr>
+          <tr><td>README</td><td>Laid out like DiscoBar's: icon, "⬇ Download Canvas.apk", screenshots, and a step-by-step install. It says clearly that Canvas is GIMP, made by the GIMP team and built here for Googlebooks, and that the GIMP team doesn't endorse it. Also the passion-project note, "Made on a Googlebook", and a tiny Claude credit.</td></tr>
+          <tr><td>Your devices</td><td>Every build lands in the HP's Download folder and is installed over adb. The ASUS covers x86_64.</td></tr>
+          <tr><td>Licences</td><td>Canvas's own code (the Android shell, tools and build scripts) is MIT. Patches keep their upstream licences. The APK as a whole is GPL-3.0-or-later, because GIMP and the X server are GPL-3.0.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <span class="eyebrow">Your call</span>
+    <h2>Four questions before I start</h2>
+    <div class="qs">
+      <div class="q">
+        <h3>1 · The name</h3>
+        <p>"Canvas" is already taken in a few places close to this app:</p>
+        <ul>
+          <li>A live US trademark, CANVAS, covers graphic-design software (Canvas GFX, class 9).</li>
+          <li>Google's own <b>Chrome Canvas</b> is a drawing app on Chromebooks.</li>
+          <li>Instructure's Canvas is an education app with over 10 million Android installs.</li>
+          <li>Play already has drawing apps literally called "Canvas".</li>
+        </ul>
+        <div class="opts">
+          <div class="opt"><span class="k">a</span><span>Keep "Canvas". It's a free hobby app on GitHub, and you accept the overlap.</span></div>
+          <div class="opt"><span class="k">b</span><span>"CanvasBook": part of your Book family and clearly not Chrome Canvas.</span></div>
+          <div class="opt"><span class="k">c</span><span>I find three clean names and check each one.</span></div>
+        </div>
+      </div>
+      <div class="q">
+        <h3>2 · Repo visibility</h3>
+        <div class="opts">
+          <div class="opt rec"><span class="k">rec</span><span><b>Public from the first push.</b> Free, unmetered 4-core CI runners. Git never holds keys.</span></div>
+          <div class="opt"><span class="k">alt</span><span>Private for now. That means 2-core runners and 2,000–3,000 CI minutes a month, which a few cold builds would use up.</span></div>
+        </div>
+      </div>
+      <div class="q">
+        <h3>3 · File access in the raw port</h3>
+        <div class="opts">
+          <div class="opt rec"><span class="k">rec</span><span><b>"All files access", switched on once in Settings.</b> GIMP's own Open and Export dialogs then see Pictures, Downloads and Documents directly. It can be dropped once Android's picker arrives in Phase 2.</span></div>
+          <div class="opt"><span class="k">alt</span><span>No broad access. Canvas only sees files opened with it and its own folder until Phase 2.</span></div>
+        </div>
+      </div>
+      <div class="q">
+        <h3>4 · How far to go before checking in</h3>
+        <div class="opts">
+          <div class="opt rec"><span class="k">rec</span><span><b>Phase 0 then Phase 1, through to a v0.1 release.</b> I'd check in only for decisions and for tests that need your hands, like the pen, pickers and printing.</span></div>
+          <div class="opt"><span class="k">alt</span><span>Phase 0 first, then a check-in with the first window on screen.</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer class="wrap">
+  <p>Research notes with sources: <code>docs/research/gimp-upstream.md</code> and <code>docs/research/android-routes.md</code> in the repo. The device checks were done on the HP Googlebook 14: Android 17, arm64, 1920×1200 at 180 dpi, the human user is user 10 in headless system user mode.</p>
+</footer>
