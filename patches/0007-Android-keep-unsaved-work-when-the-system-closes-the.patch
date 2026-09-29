@@ -1,0 +1,78 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Alexander <4418484+kuscher@users.noreply.github.com>
+Date: Tue, 29 Sep 2026 06:57:10 +0000
+Subject: [PATCH 7/8] Android: keep unsaved work when the system closes the app
+
+Android can stop a background app, or close its window, without Patchy's
+close prompt ever running. Recovery copies are written as soon as the
+window leaves the screen, and the recovery folder is only deleted after a
+quit the user confirmed, so the next launch reopens unsaved documents.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/app/main.cpp       | 9 +++++++++
+ src/ui/main_window.cpp | 8 +++++++-
+ src/ui/main_window.hpp | 4 ++++
+ 3 files changed, 20 insertions(+), 1 deletion(-)
+
+diff --git a/src/app/main.cpp b/src/app/main.cpp
+index 5b5cb06..7681374 100644
+--- a/src/app/main.cpp
++++ b/src/app/main.cpp
+@@ -786,6 +786,15 @@ int main(int argc, char* argv[]) {
+   files += patchy::ui::android_files::take_launch_documents();
+   patchy::ui::android_files::watch_new_documents(
+       [&window](const QStringList& paths) { window.activate_for_second_instance(paths); });
++  // Android may stop a background app without warning, so write recovery copies of
++  // changed documents as soon as the window leaves the screen, not only on the timer
++  // (docs/document-recovery.md).
++  QObject::connect(&app, &QGuiApplication::applicationStateChanged, &window,
++                   [&window](Qt::ApplicationState state) {
++                     if (state == Qt::ApplicationSuspended || state == Qt::ApplicationHidden) {
++                       (void)window.write_recovery_now(false);
++                     }
++                   });
+ #endif
+ 
+ #ifndef Q_OS_WASM
+diff --git a/src/ui/main_window.cpp b/src/ui/main_window.cpp
+index 2760275..150ba10 100644
+--- a/src/ui/main_window.cpp
++++ b/src/ui/main_window.cpp
+@@ -8040,6 +8040,7 @@ void MainWindow::closeEvent(QCloseEvent* event) {
+       target_session->float_window->hide();
+     }
+   }
++  quit_confirmed_ = true;
+   event->accept();
+ }
+ 
+@@ -8075,7 +8076,12 @@ MainWindow::~MainWindow() {
+     recovery_timer_->stop();
+   }
+   if (recovery_folder_ != nullptr) {
+-    recovery_folder_->discard_on_release();
++#ifdef Q_OS_ANDROID
++    // Android can tear the app down without a confirmed close; keep the copies then,
++    // and the next launch reopens them.
++    if (quit_confirmed_)
++#endif
++      recovery_folder_->discard_on_release();
+   }
+ #endif
+   // The color-picker palette hook captures this window; drop it so a picker
+diff --git a/src/ui/main_window.hpp b/src/ui/main_window.hpp
+index e9f6067..fa807e6 100644
+--- a/src/ui/main_window.hpp
++++ b/src/ui/main_window.hpp
+@@ -2256,6 +2256,10 @@ private:
+   // otherwise run the inline-text-editor commit path against destroyed members. Read
+   // only as an early-out guard; a bool stays trivially readable through teardown.
+   bool shutting_down_{false};
++  // Android: set once the user confirmed quitting (closeEvent accepted). The system can
++  // destroy the app without that (the window's close button, a reclaimed background
++  // app), and then the recovery copies must survive for the next launch.
++  bool quit_confirmed_ = false;
+   // CLI automation (run_cli_export): suppress interactive prompts on the open/edit/save
+   // paths so an unattended run can never block on a dialog.
+   bool cli_automation_mode_{false};

@@ -16,6 +16,7 @@ on:
       - VERSION
       - patches/**
       - android/**
+      - THIRD_PARTY_NOTICES.md
       - .github/workflows/build.yml
   workflow_dispatch:
 
@@ -24,7 +25,7 @@ permissions:
 
 concurrency:
   group: apk-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 env:
   CCACHE_DIR: ${{ github.workspace }}/.ccache
@@ -110,6 +111,7 @@ jobs:
             -DPATCHY_BUILD_TESTS=OFF \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             -DPATCHY_ANDROID_PACKAGE_DIR="$GITHUB_WORKSPACE/canvas/android" \
+            -DPATCHY_ANDROID_NOTICES_FILE="$GITHUB_WORKSPACE/canvas/THIRD_PARTY_NOTICES.md" \
             -DPATCHY_ANDROID_VERSION_NAME="$VERSION_NAME" \
             -DPATCHY_ANDROID_VERSION_CODE="$VERSION_CODE" \
             -Wno-deprecated -Wno-dev
@@ -136,3 +138,90 @@ jobs:
           name: canvas-apk
           path: out/*.apk
           retention-days: 14
+
+  smoke:
+    # Launch check on x86_64: Android 16 in the emulator (KVM on the runner). Installs
+    # the APK signed with a throwaway key, starts Canvas, and fails if the process
+    # dies or logs a fatal error within a minute. The screenshot shows the window.
+    name: Launch on Android 16 (x86_64 emulator)
+    needs: apk
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      IMAGE: system-images;android-36;default;x86_64
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: canvas-apk
+          path: apk
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Sign with a throwaway key
+        run: |
+          BT=$ANDROID_HOME/build-tools/36.0.0
+          [[ -x $BT/apksigner ]] || "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "build-tools;36.0.0" >/dev/null
+          keytool -genkeypair -keystore ci.jks -storetype PKCS12 -storepass ci-only -alias ci \
+            -keyalg RSA -keysize 2048 -validity 30 -dname "CN=Canvas CI" >/dev/null 2>&1
+          "$BT/zipalign" -f -p 4 apk/*.apk aligned.apk
+          "$BT/apksigner" sign --ks ci.jks --ks-pass pass:ci-only --out Canvas.apk aligned.apk
+
+      - name: Start the emulator
+        run: |
+          echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
+          export PATH=$ANDROID_HOME/platform-tools:$PATH
+          export ANDROID_AVD_HOME=$HOME/.android/avd
+          mkdir -p "$ANDROID_AVD_HOME"
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' |
+            sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
+          SDKM=$ANDROID_HOME/cmdline-tools/latest/bin
+          EMU=$ANDROID_HOME/emulator/emulator
+          yes | "$SDKM/sdkmanager" --licenses > /dev/null || true
+          "$SDKM/sdkmanager" --install emulator platform-tools "$IMAGE" > /dev/null
+          echo no | "$SDKM/avdmanager" create avd -n tablet -k "$IMAGE" -d pixel_tablet -p "$ANDROID_AVD_HOME/tablet.avd"
+          echo 'disk.dataPartition.size=6G' >> "$ANDROID_AVD_HOME/tablet.avd/config.ini"
+          "$EMU" -avd tablet -no-window -no-audio -no-boot-anim -no-snapshot -no-metrics \
+            -gpu swiftshader_indirect -memory 4096 > emulator.log 2>&1 &
+          timeout 300 adb wait-for-device || { tail -40 emulator.log; exit 1; }
+          timeout 900 bash -c 'until [[ $(adb shell getprop sys.boot_completed 2>/dev/null | tr -d "\r") == 1 ]]; do sleep 5; done' ||
+            { tail -40 emulator.log; exit 1; }
+          timeout 300 bash -c 'until adb shell pm path android >/dev/null 2>&1; do sleep 5; done'
+          sleep 20
+
+      - name: Install and launch Canvas
+        run: |
+          for try in 1 2 3; do adb install -r Canvas.apk && break; [[ $try == 3 ]] && exit 1; sleep 20; done
+          adb logcat -c
+          adb shell am start -W -n io.github.kuscher.canvas/io.github.kuscher.canvas.CanvasActivity
+          sleep 60
+          pid=$(adb shell pidof io.github.kuscher.canvas | tr -d '\r')
+          adb logcat -d > logcat.txt
+          if [[ -z $pid ]]; then
+            echo "::error::Canvas is not running a minute after launch"
+            grep -E "FATAL|AndroidRuntime|DEBUG|libc|qt|Qt|Canvas" logcat.txt | tail -80
+            exit 1
+          fi
+          if grep -E "F DEBUG|FATAL EXCEPTION" logcat.txt | grep -v "^--" | head -5 | grep -q .; then
+            echo "::error::a fatal error was logged"; grep -A20 -E "F DEBUG|FATAL EXCEPTION" logcat.txt | head -60; exit 1
+          fi
+          echo "Canvas is running (pid $pid)"
+
+      - name: Screenshot and logs
+        if: always()
+        run: |
+          timeout 30 adb exec-out screencap -p > screen.png || true
+          timeout 30 adb logcat -d > logcat-full.txt || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: android-16-launch
+          path: |
+            screen.png
+            logcat.txt
+            logcat-full.txt
+            emulator.log

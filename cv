@@ -64,7 +64,7 @@ cmd_build() {
     "$Q/android_$qabi/bin/qt-cmake" -S "$SRC" -B "$B" -G Ninja -DCMAKE_BUILD_TYPE=Release \
       -DQT_HOST_PATH="$Q/gcc_arm64" -DANDROID_SDK_ROOT="$SDK" -DANDROID_NDK_ROOT="$N" \
       -DPATCHY_BUILD_TESTS=OFF -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-      -DPATCHY_ANDROID_PACKAGE_DIR="$ROOT/android" \
+      -DPATCHY_ANDROID_PACKAGE_DIR="$ROOT/android" -DPATCHY_ANDROID_NOTICES_FILE="$ROOT/THIRD_PARTY_NOTICES.md" \
       -DPATCHY_ANDROID_VERSION_NAME="$VERSION_NAME" -DPATCHY_ANDROID_VERSION_CODE="$VERSION_CODE" \
       "${multi[@]}" -Wno-deprecated -Wno-dev >/dev/null
   fi

@@ -38,6 +38,11 @@ public class CanvasActivity extends QtActivity {
         super.onDestroy();
     }
 
+    /** The live activity, for the other Java helpers. */
+    static CanvasActivity currentActivity() {
+        return current;
+    }
+
     /** Called from C++ on the Qt thread. */
     public static void setCaptionColor(final int argb, final boolean dark) {
         final CanvasActivity activity = current;

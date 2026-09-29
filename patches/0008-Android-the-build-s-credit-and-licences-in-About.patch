@@ -1,0 +1,133 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Alexander <4418484+kuscher@users.noreply.github.com>
+Date: Tue, 29 Sep 2026 07:00:09 +0000
+Subject: [PATCH 8/8] Android: the build's credit and licences in About
+
+The About dialog names the Android build and links its source and a
+Licenses viewer for the notices the build embeds
+(PATCHY_ANDROID_NOTICES_FILE). The settings and data folder rows are hidden,
+since Android has no folder to open.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ cmake/patchy_android.cmake | 11 ++++++-
+ src/ui/splash_dialog.cpp   | 61 +++++++++++++++++++++++++++++++++++++-
+ 2 files changed, 70 insertions(+), 2 deletions(-)
+
+diff --git a/cmake/patchy_android.cmake b/cmake/patchy_android.cmake
+index cbaeeba..4897370 100644
+--- a/cmake/patchy_android.cmake
++++ b/cmake/patchy_android.cmake
+@@ -12,10 +12,13 @@
+ #                                replace Qt's template (QT_ANDROID_PACKAGE_SOURCE_DIR)
+ #   PATCHY_ANDROID_VERSION_NAME  versionName (default: the project version)
+ #   PATCHY_ANDROID_VERSION_CODE  versionCode (default: 1)
++#   PATCHY_ANDROID_NOTICES_FILE  the app's third-party notices, shown from the About
++#                                dialog (resource :/android/THIRD_PARTY_NOTICES.md)
+ 
+ set(PATCHY_ANDROID_PACKAGE_DIR "" CACHE PATH "Android package sources (manifest, res, java)")
+ set(PATCHY_ANDROID_VERSION_NAME "${PROJECT_VERSION}" CACHE STRING "Android versionName")
+ set(PATCHY_ANDROID_VERSION_CODE "1" CACHE STRING "Android versionCode")
++set(PATCHY_ANDROID_NOTICES_FILE "" CACHE FILEPATH "Third-party notices shown in the About dialog")
+ 
+ function(patchy_android_resource_files out_var source_dir alias_dir)
+   file(GLOB_RECURSE files RELATIVE "${source_dir}" CONFIGURE_DEPENDS "${source_dir}/*")
+@@ -60,8 +63,14 @@ function(patchy_add_android_app)
+     set_source_files_properties("${qm}" PROPERTIES QT_RESOURCE_ALIAS "translations/${name}" GENERATED TRUE)
+     list(APPEND translations "${qm}")
+   endforeach()
++  set(notices)
++  if(PATCHY_ANDROID_NOTICES_FILE)
++    set_source_files_properties("${PATCHY_ANDROID_NOTICES_FILE}" PROPERTIES
++      QT_RESOURCE_ALIAS "android/THIRD_PARTY_NOTICES.md")
++    set(notices "${PATCHY_ANDROID_NOTICES_FILE}")
++  endif()
+   qt_add_resources(patchy patchy_android_runtime
+     PREFIX "/"
+-    FILES ${fonts} ${web_fonts} ${scripts} ${translations}
++    FILES ${fonts} ${web_fonts} ${scripts} ${translations} ${notices}
+   )
+ endfunction()
+diff --git a/src/ui/splash_dialog.cpp b/src/ui/splash_dialog.cpp
+index 90689cb..33e41ba 100644
+--- a/src/ui/splash_dialog.cpp
++++ b/src/ui/splash_dialog.cpp
+@@ -34,9 +34,43 @@
+ 
+ #include "patchy_version.hpp"
+ 
++#ifdef Q_OS_ANDROID
++#include <QDesktopServices>
++#include <QDialogButtonBox>
++#include <QFile>
++#include <QTextBrowser>
++#include <QUrl>
++#include <QVBoxLayout>
++#endif
++
+ namespace patchy::ui {
+ namespace {
+ 
++#ifdef Q_OS_ANDROID
++// The Android build's third-party notices (cmake/patchy_android.cmake embeds
++// the file), in a scrollable dialog.
++void show_android_licenses(QWidget* parent) {
++  QDialog dialog(parent);
++  dialog.setObjectName(QStringLiteral("androidLicensesDialog"));
++  dialog.setWindowTitle(QStringLiteral("Licenses"));
++  dialog.resize(760, 560);
++  auto* layout = new QVBoxLayout(&dialog);
++  auto* text = new QTextBrowser(&dialog);
++  text->setOpenExternalLinks(true);
++  QFile notices(QStringLiteral(":/android/THIRD_PARTY_NOTICES.md"));
++  if (notices.open(QIODevice::ReadOnly)) {
++    text->setMarkdown(QString::fromUtf8(notices.readAll()));
++  } else {
++    text->setPlainText(QStringLiteral("The notices are at https://github.com/kuscher/canvas."));
++  }
++  layout->addWidget(text, 1);
++  auto* buttons = new QDialogButtonBox(QDialogButtonBox::Close, &dialog);
++  QObject::connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
++  layout->addWidget(buttons);
++  dialog.exec();
++}
++#endif
++
+ QString format_memory_mb(qint64 mb) {
+   if (mb >= 1024) {
+     return QObject::tr("%1 GB").arg(static_cast<double>(mb) / 1024.0, 0, 'f', 1);
+@@ -229,8 +263,33 @@ public:
+     const auto seth_site_link = QStringLiteral("<a style=\"color:@splash_link_text; text-decoration:none;\" "
+                                                "href=\"https://rtsoft.com\">rtsoft.com</a>");
+     add_home_link(QObject::tr("Seth's site: %1").arg(seth_site_link));
++#ifdef Q_OS_ANDROID
++    // This build's own credit and licences (English only, like the rest of the
++    // Android additions).
++    auto* android_credit = new QLabel(this);
++    android_credit->setObjectName(QStringLiteral("splashAndroidBuild"));
++    android_credit->setTextFormat(Qt::RichText);
++    android_credit->setWordWrap(true);
++    android_credit->setTextInteractionFlags(Qt::TextBrowserInteraction);
++    set_themed_label_text(
++        *android_credit,
++        QStringLiteral("This Android build is Canvas, made for Googlebooks by Alexander Kuscher. It is a "
++                       "personal hobby project, not made or endorsed by Seth A. Robinson. "
++                       "<a style=\"color:@splash_link_text; text-decoration:none;\" "
++                       "href=\"https://github.com/kuscher/canvas\">github.com/kuscher/canvas</a> &middot; "
++                       "<a style=\"color:@splash_link_text; text-decoration:none;\" "
++                       "href=\"canvas:licenses\">Licenses</a>"));
++    connect(android_credit, &QLabel::linkActivated, this, [this](const QString& link) {
++      if (link == QStringLiteral("canvas:licenses")) {
++        show_android_licenses(this);
++      } else {
++        QDesktopServices::openUrl(QUrl(link));
++      }
++    });
++    copy->addWidget(android_credit);
++#endif
+ 
+-#ifndef Q_OS_WASM
++#if !defined(Q_OS_WASM) && !defined(Q_OS_ANDROID)
+     // The wasm settings store is window.localStorage and its user data lives in
+     // IndexedDB, so there is no file to display and no folder a file manager could open.
+     // Each row: bold caption, selectable path, and a button that opens the folder

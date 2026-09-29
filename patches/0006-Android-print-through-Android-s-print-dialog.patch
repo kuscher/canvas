@@ -1,0 +1,148 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Alexander <4418484+kuscher@users.noreply.github.com>
+Date: Tue, 29 Sep 2026 06:54:57 +0000
+Subject: [PATCH 6/8] Android: print through Android's print dialog
+
+Qt has no printer drivers on Android, so File > Print writes the page as a
+PDF with Patchy's own placement (actual size, or fit when that overflows)
+on the locale's paper, turned to the document's orientation, and hands it
+to Android's print dialog, which picks the printer, paper and copies or
+saves a PDF. Page Setup stays hidden.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/ui/android_window.cpp            | 36 ++++++++++++++++++++++++++++
+ src/ui/android_window.hpp            | 12 ++++++++++
+ src/ui/main_window_actions_menus.cpp |  6 ++---
+ src/ui/print_dialog.cpp              | 10 ++++++++
+ 4 files changed, 61 insertions(+), 3 deletions(-)
+
+diff --git a/src/ui/android_window.cpp b/src/ui/android_window.cpp
+index 3479a76..d91aa2e 100644
+--- a/src/ui/android_window.cpp
++++ b/src/ui/android_window.cpp
+@@ -4,7 +4,10 @@
+ #include "ui/theme_palette.hpp"
+ 
+ #include <QCoreApplication>
++#include <QDir>
+ #include <QJniObject>
++#include <QLocale>
++#include <QStandardPaths>
+ 
+ namespace patchy::ui::android_window {
+ namespace {
+@@ -18,6 +21,39 @@ void push_caption_color(ColorScheme scheme) {
+ 
+ }  // namespace
+ 
++bool print_as_pdf(const Document& document, const PrintSettings& settings, const QPageLayout& page_layout,
++                  const QString& title) {
++  // Page Setup is hidden on Android, so pick the sheet here.
++  const auto sheet = QLocale().measurementSystem() == QLocale::MetricSystem ? QPageSize(QPageSize::A4)
++                                                                             : QPageSize(QPageSize::Letter);
++  const auto orientation =
++      document.width() > document.height() ? QPageLayout::Landscape : QPageLayout::Portrait;
++  auto layout = page_layout_with_size(page_layout, sheet, orientation);
++  // Refit for the new sheet: fit when actual size would overflow it.
++  auto page_settings = settings;
++  if (page_settings.scale_mode != PrintScaleMode::FitToPage) {
++    auto actual = page_settings;
++    actual.scale_mode = PrintScaleMode::ActualSize;
++    const auto placement = calculate_print_placement(document, actual, layout);
++    const auto printable = layout.paintRect(QPageLayout::Point);
++    if (placement.target_rect_points.width() > printable.width() + 0.5 ||
++        placement.target_rect_points.height() > printable.height() + 0.5) {
++      page_settings.scale_mode = PrintScaleMode::FitToPage;
++    }
++  }
++  const auto folder = QStandardPaths::writableLocation(QStandardPaths::CacheLocation) + QStringLiteral("/print");
++  QDir().mkpath(folder);
++  const auto path = folder + QLatin1Char('/') + default_print_pdf_filename(title);
++  if (!write_print_pdf(path, document, page_settings, layout, title)) {
++    return false;
++  }
++  QJniObject::callStaticMethod<void>("io/github/kuscher/canvas/CanvasPrint", "printPdf",
++                                     "(Ljava/lang/String;Ljava/lang/String;)V",
++                                     QJniObject::fromString(path).object<jstring>(),
++                                     QJniObject::fromString(title).object<jstring>());
++  return true;
++}
++
+ void follow_theme_in_caption_bar() {
+   auto& themes = ThemeManager::instance();
+   push_caption_color(themes.resolved_scheme());
+diff --git a/src/ui/android_window.hpp b/src/ui/android_window.hpp
+index 05bd73b..c9c2922 100644
+--- a/src/ui/android_window.hpp
++++ b/src/ui/android_window.hpp
+@@ -2,8 +2,20 @@
+ 
+ // Desktop-window details of the Android build that live in Canvas's activity
+ // (io.github.kuscher.canvas.CanvasActivity), driven from here.
++#include "ui/print_dialog.hpp"
++
++#include <QPageLayout>
++#include <QString>
++
+ namespace patchy::ui::android_window {
+ 
++// File > Print: writes the page as a PDF (write_print_pdf) on the locale's
++// paper (A4, or Letter where inches rule), turned to the document's
++// orientation, and opens Android's print dialog with it. Returns false when
++// the PDF can't be written.
++[[nodiscard]] bool print_as_pdf(const Document& document, const PrintSettings& settings,
++                                const QPageLayout& page_layout, const QString& title);
++
+ // Keeps the system caption bar above the window in the menu bar's color
+ // (title_bar_bg), following the light or dark scheme. Call once after the
+ // saved scheme is loaded.
+diff --git a/src/ui/main_window_actions_menus.cpp b/src/ui/main_window_actions_menus.cpp
+index 6a8feb7..2e99ec4 100644
+--- a/src/ui/main_window_actions_menus.cpp
++++ b/src/ui/main_window_actions_menus.cpp
+@@ -447,14 +447,14 @@ void MainWindow::build_menu_bar_actions(ActionBuildContext& ctx) {
+   print_action->setVisible(false);
+ #elif defined(Q_OS_ANDROID)
+   // Android hands out single documents through the system picker, not folders
+-  // to read or write into (dialog_utils_android.cpp), and Qt's print dialogs
+-  // have no Android backend. The actions stay registered like on wasm.
++  // to read or write into (dialog_utils_android.cpp). Print goes through
++  // Android's print dialog, which also picks the paper, so no Page Setup.
++  // The actions stay registered like on wasm.
+   export_image_sequence_action->setVisible(false);
+   export_documents_folder_action->setVisible(false);
+   open_folder_action->setVisible(false);
+   recent_folders_menu_->menuAction()->setVisible(false);
+   page_setup_action->setVisible(false);
+-  print_action->setVisible(false);
+ #endif
+   file_menu->addSeparator();
+   // File > Scripts: static entries here (hotkeys register once); the script
+diff --git a/src/ui/print_dialog.cpp b/src/ui/print_dialog.cpp
+index ead1653..c1220a6 100644
+--- a/src/ui/print_dialog.cpp
++++ b/src/ui/print_dialog.cpp
+@@ -1,5 +1,9 @@
+ #include "ui/print_dialog.hpp"
+ 
++#ifdef Q_OS_ANDROID
++#include "ui/android_window.hpp"
++#endif
++
+ #include "ui/app_settings.hpp"
+ #include "ui/dialog_utils.hpp"
+ #include "ui/image_document_io.hpp"
+@@ -804,6 +808,12 @@ bool run_print_dialog(QWidget* parent, const Document& document, const QString&
+            placement.target_rect_points.height() <= printable.height() + 0.5;
+   }();
+   settings.scale_mode = fits_at_actual_size ? PrintScaleMode::CustomScale : PrintScaleMode::FitToPage;
++#ifdef Q_OS_ANDROID
++  // Qt has no printer drivers on Android: the page goes out as a PDF to Android's
++  // own print dialog (printers, paper, copies, Save as PDF), which replaces this one.
++  Q_UNUSED(parent);
++  return android_window::print_as_pdf(document, settings, current_layout, display_title);
++#endif
+ 
+   QDialog dialog(parent);
+   dialog.setObjectName(QStringLiteral("patchyPrintDialog"));
