@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Alexander <4418484+kuscher@users.noreply.github.com>
 Date: Tue, 29 Sep 2026 06:50:29 +0000
-Subject: [PATCH 03/10] Android: hide what needs desktop folders, windows or
+Subject: [PATCH 03/11] Android: hide what needs desktop folders, windows or
  the network
 
 Open Folder, Open Recent Folder, folder exports and Open in File Explorer

@@ -2,10 +2,13 @@
 package io.github.kuscher.canvas;
 
 import android.app.ActivityManager;
+import android.graphics.Rect;
 import android.graphics.drawable.ColorDrawable;
 import android.os.Build;
 import android.os.Bundle;
 import android.view.View;
+import android.view.ViewTreeObserver;
+import android.view.WindowInsets;
 import android.view.WindowInsetsController;
 
 import org.qtproject.qt.android.bindings.QtActivity;
@@ -39,6 +42,49 @@ public class CanvasActivity extends QtActivity {
         // query can race a menu; TalkBack can't read Canvas until Qt fixes this.
         getWindow().getDecorView().setImportantForAccessibility(
                 View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
+        // Keep the caption bar's layout current for C++ (captionLayout()).
+        getWindow().getDecorView().getViewTreeObserver().addOnGlobalLayoutListener(
+                new ViewTreeObserver.OnGlobalLayoutListener() {
+                    @Override
+                    public void onGlobalLayout() {
+                        measureCaption();
+                    }
+                });
+    }
+
+    private volatile int[] caption = {0, 0, 0};
+
+    /**
+     * Where the desktop caption bar sits over the window, in window pixels: its height,
+     * and how much of its left and right the system's own controls take (the app icon
+     * and menu, the window buttons). Canvas puts Patchy's menu bar in the rest of it.
+     */
+    private void measureCaption() {
+        View decor = getWindow().getDecorView();
+        WindowInsets insets = decor.getRootWindowInsets();
+        if (insets == null) {
+            return;
+        }
+        int height = insets.getInsets(WindowInsets.Type.captionBar()).top;
+        int width = decor.getWidth();
+        int left = 0;
+        int right = 0;
+        if (height > 0 && Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
+            for (Rect r : insets.getBoundingRects(WindowInsets.Type.captionBar())) {
+                if (r.centerX() < width / 2) {
+                    left = Math.max(left, r.right);
+                } else {
+                    right = Math.max(right, width - r.left);
+                }
+            }
+        }
+        caption = new int[] {height, left, right};
+    }
+
+    /** Called from C++: {height, left, right} of the caption bar in window pixels. */
+    public static int[] captionLayout() {
+        CanvasActivity activity = current;
+        return activity != null ? activity.caption : new int[] {0, 0, 0};
     }
 
     @Override

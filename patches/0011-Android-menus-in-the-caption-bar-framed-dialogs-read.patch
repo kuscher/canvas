@@ -1,0 +1,472 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Alexander <4418484+kuscher@users.noreply.github.com>
+Date: Tue, 29 Sep 2026 08:09:03 +0000
+Subject: [PATCH 11/11] Android: menus in the caption bar, framed dialogs,
+ readable recent files
+
+- The main window draws under the transparent caption bar and the menu bar
+  takes its height and the space between the system's app menu and window
+  buttons (CanvasActivity measures them), so caption and menus are one bar.
+- Android draws no frame around an app's dialogs: every dialog without
+  Patchy's chrome gets its title bar, close button and outline as it is
+  first polished (its layout moves into a body under the title bar).
+- Recent files and the start panel show where a document lives
+  ("Downloads > photo.png") instead of its working copy's path.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/app/main.cpp                | 38 ++++++++++++++++
+ src/ui/android_window.cpp       | 81 +++++++++++++++++++++++++++++++++
+ src/ui/android_window.hpp       |  9 ++++
+ src/ui/dialog_utils.cpp         | 64 +++++++++++++++++++++-----
+ src/ui/dialog_utils.hpp         |  7 +++
+ src/ui/dialog_utils_android.cpp | 29 ++++++++++++
+ src/ui/dialog_utils_android.hpp |  8 ++++
+ src/ui/main_window_files.cpp    |  4 ++
+ src/ui/start_panel.cpp          | 19 +++++++-
+ 9 files changed, 245 insertions(+), 14 deletions(-)
+
+diff --git a/src/app/main.cpp b/src/app/main.cpp
+index d3bf0a8..43c6eec 100644
+--- a/src/app/main.cpp
++++ b/src/app/main.cpp
+@@ -10,8 +10,18 @@
+ #include "ui/mcp_attachment.hpp"
+ #include "ui/script_engine.hpp"
+ #include "ui/single_instance.hpp"
++#include "ui/dialog_utils.hpp"
+ #ifdef Q_OS_ANDROID
+ #include <QAccessible>
++#include <QColorDialog>
++#include <QDialog>
++#include <QErrorMessage>
++#include <QFileDialog>
++#include <QFontDialog>
++#include <QInputDialog>
++#include <QMessageBox>
++#include <QProgressDialog>
++#include <QWizard>
+ #include <QJniObject>
+ #include "ui/android_window.hpp"
+ #include "ui/dialog_utils_android.hpp"
+@@ -341,6 +351,28 @@ QFont application_font() {
+ #endif
+ }
+ 
++#ifdef Q_OS_ANDROID
++// Android draws no frame around an app's own windows, so every dialog without
++// Patchy's chrome gets its title bar as it is first polished. Message boxes and
++// Qt's stock dialogs manage their own layouts and are left alone.
++class AndroidDialogFrames final : public QObject {
++ protected:
++  bool eventFilter(QObject* watched, QEvent* event) override {
++    if (event->type() == QEvent::Polish) {
++      auto* dialog = qobject_cast<QDialog*>(watched);
++      if (dialog != nullptr && dialog->isWindow() && qobject_cast<QMessageBox*>(dialog) == nullptr &&
++          qobject_cast<QFileDialog*>(dialog) == nullptr && qobject_cast<QColorDialog*>(dialog) == nullptr &&
++          qobject_cast<QFontDialog*>(dialog) == nullptr && qobject_cast<QInputDialog*>(dialog) == nullptr &&
++          qobject_cast<QProgressDialog*>(dialog) == nullptr && qobject_cast<QErrorMessage*>(dialog) == nullptr &&
++          qobject_cast<QWizard*>(dialog) == nullptr) {
++        patchy::ui::wrap_dialog_in_chrome_for_android(*dialog);
++      }
++    }
++    return false;
++  }
++};
++#endif
++
+ }  // namespace
+ 
+ int main(int argc, char* argv[]) {
+@@ -413,6 +445,9 @@ int main(int argc, char* argv[]) {
+   QCoreApplication::setAttribute(Qt::AA_DontUseNativeMenuBar);
+ #endif
+   PatchyApplication app(argc, argv);
++#ifdef Q_OS_ANDROID
++  app.installEventFilter(new AndroidDialogFrames);
++#endif
+   // Qt adopts the user's locale for the C runtime on Unix (setlocale(LC_ALL, "")), which turns
+   // every strtod/to_string in the file codecs decimal-comma under de_DE and friends and
+   // corrupts what PSD text engine data and other text formats write and parse. Keep the C
+@@ -771,6 +806,9 @@ int main(int argc, char* argv[]) {
+     }
+   }
+ 
++#ifdef Q_OS_ANDROID
++  patchy::ui::android_window::put_menu_bar_in_caption(window);
++#endif
+   window.show();
+   if (stress_mode) {
+     // No update check and no file opens: run the scripted scenario as soon
+diff --git a/src/ui/android_window.cpp b/src/ui/android_window.cpp
+index d91aa2e..0b5d722 100644
+--- a/src/ui/android_window.cpp
++++ b/src/ui/android_window.cpp
+@@ -5,7 +5,16 @@
+ 
+ #include <QCoreApplication>
+ #include <QDir>
++#include <QEvent>
++#include <QJniEnvironment>
+ #include <QJniObject>
++#include <QMainWindow>
++#include <QMenuBar>
++#include <QPointer>
++#include <QTimer>
++
++#include <array>
++#include <cmath>
+ #include <QLocale>
+ #include <QStandardPaths>
+ 
+@@ -19,8 +28,80 @@ void push_caption_color(ColorScheme scheme) {
+                                      static_cast<jboolean>(color.lightness() < 128));
+ }
+ 
++// {height, left, right} of the caption bar, in device pixels.
++std::array<int, 3> caption_layout() {
++  std::array<int, 3> layout{0, 0, 0};
++  const auto values = QJniObject::callStaticObjectMethod("io/github/kuscher/canvas/CanvasActivity",
++                                                         "captionLayout", "()[I");
++  if (!values.isValid()) {
++    return layout;
++  }
++  QJniEnvironment env;
++  const auto array = static_cast<jintArray>(values.object());
++  if (env->GetArrayLength(array) >= 3) {
++    env->GetIntArrayRegion(array, 0, 3, layout.data());
++  }
++  return layout;
++}
++
++class CaptionMenuBar final : public QObject {
++ public:
++  explicit CaptionMenuBar(QMainWindow& window) : QObject(&window), window_(&window) {
++    window.setAttribute(Qt::WA_ContentsMarginsRespectsSafeArea, false);
++    window.installEventFilter(this);
++    // The caption is measured after Android lays the window out; check again shortly.
++    for (const int delay : {0, 300, 1000}) {
++      QTimer::singleShot(delay, this, [this] { update(); });
++    }
++  }
++
++ protected:
++  bool eventFilter(QObject* watched, QEvent* event) override {
++    if (watched == window_ &&
++        (event->type() == QEvent::Resize || event->type() == QEvent::Show ||
++         event->type() == QEvent::WindowStateChange)) {
++      QTimer::singleShot(0, this, [this] { update(); });
++      QTimer::singleShot(400, this, [this] { update(); });
++    }
++    return QObject::eventFilter(watched, event);
++  }
++
++ private:
++  void update() {
++    if (window_ == nullptr) {
++      return;
++    }
++    auto* bar = window_->menuBar();
++    const auto [height, left, right] = caption_layout();
++    const double ratio = window_->devicePixelRatio();
++    QString style;
++    if (height > 0 && ratio > 0.0) {
++      const int h = static_cast<int>(std::lround(height / ratio));
++      // A little air after the app menu, and before the window buttons.
++      const int l = static_cast<int>(std::lround(left / ratio)) + 6;
++      const int r = static_cast<int>(std::lround(right / ratio)) + 6;
++      style = QStringLiteral("QMenuBar { min-height: %1px; max-height: %1px; padding-left: %2px;"
++                             " padding-right: %3px; } QMenuBar::item { min-height: %1px; }")
++                  .arg(h)
++                  .arg(l)
++                  .arg(r);
++    }
++    if (style != applied_) {
++      applied_ = style;
++      bar->setStyleSheet(style);
++    }
++  }
++
++  QPointer<QMainWindow> window_;
++  QString applied_;
++};
++
+ }  // namespace
+ 
++void put_menu_bar_in_caption(QMainWindow& window) {
++  new CaptionMenuBar(window);
++}
++
+ bool print_as_pdf(const Document& document, const PrintSettings& settings, const QPageLayout& page_layout,
+                   const QString& title) {
+   // Page Setup is hidden on Android, so pick the sheet here.
+diff --git a/src/ui/android_window.hpp b/src/ui/android_window.hpp
+index c9c2922..0b804d7 100644
+--- a/src/ui/android_window.hpp
++++ b/src/ui/android_window.hpp
+@@ -7,8 +7,17 @@
+ #include <QPageLayout>
+ #include <QString>
+ 
++class QMainWindow;
++
+ namespace patchy::ui::android_window {
+ 
++// Puts the main window's menu bar into the desktop caption bar: the window
++// draws under the (transparent) caption, and the menu bar takes the caption's
++// height and the space between the system's app menu and window buttons. The
++// caption and the menu bar become one bar in the menu bar's color. Follows the
++// caption as the window changes; without a caption the menu bar is left as is.
++void put_menu_bar_in_caption(QMainWindow& window);
++
+ // File > Print: writes the page as a PDF (write_print_pdf) on the locale's
+ // paper (A4, or Letter where inches rule), turned to the document's
+ // orientation, and opens Android's print dialog with it. Returns false when
+diff --git a/src/ui/dialog_utils.cpp b/src/ui/dialog_utils.cpp
+index 6264029..067411a 100644
+--- a/src/ui/dialog_utils.cpp
++++ b/src/ui/dialog_utils.cpp
+@@ -1357,19 +1357,11 @@ void VisibleSizeGrip::paintEvent(QPaintEvent* /*event*/) {
+   }
+ }
+ 
+-QVBoxLayout* install_dark_dialog_chrome(QDialog& dialog, QVBoxLayout* root, const QString& title,
+-                                        DialogChromeCloseMode close_mode) {
+-  dialog.setWindowTitle(title);
+-  dialog.setWindowFlag(Qt::FramelessWindowHint, true);
+-  apply_frameless_window_effects_on_show(dialog, WindowCornerRadius::Standard);
+-  append_themed_style(dialog, dialog_chrome_style());
+-  // 1px inset, not zero: QSS draws the QDialog border under child widgets, so
+-  // a full-bleed title bar would cover the outline. That outline is the only
+-  // edge a floating dialog has where no window-manager shadow exists (wasm),
+-  // and in Light the title bar shares @title_bar_bg with the chrome behind it.
+-  root->setContentsMargins(1, 1, 1, 1);
+-  root->setSpacing(0);
++namespace {
+ 
++// The title bar of Patchy's own dialog chrome: badge, title, close button, and
++// dragging the dialog by it.
++QWidget* build_dialog_chrome_title_bar(QDialog& dialog, const QString& title, DialogChromeCloseMode close_mode) {
+   auto* title_bar = new QWidget(&dialog);
+   title_bar->setObjectName(QStringLiteral("dialogChromeTitleBar"));
+   title_bar->setFixedHeight(34);
+@@ -1400,6 +1392,25 @@ QVBoxLayout* install_dark_dialog_chrome(QDialog& dialog, QVBoxLayout* root, cons
+   close->setFixedSize(46, 34);
+   title_layout->addWidget(close);
+   QObject::connect(close, &QToolButton::clicked, &dialog, accept_on_close ? &QDialog::accept : &QDialog::reject);
++  return title_bar;
++}
++
++}  // namespace
++
++QVBoxLayout* install_dark_dialog_chrome(QDialog& dialog, QVBoxLayout* root, const QString& title,
++                                        DialogChromeCloseMode close_mode) {
++  dialog.setWindowTitle(title);
++  dialog.setWindowFlag(Qt::FramelessWindowHint, true);
++  apply_frameless_window_effects_on_show(dialog, WindowCornerRadius::Standard);
++  append_themed_style(dialog, dialog_chrome_style());
++  // 1px inset, not zero: QSS draws the QDialog border under child widgets, so
++  // a full-bleed title bar would cover the outline. That outline is the only
++  // edge a floating dialog has where no window-manager shadow exists (wasm),
++  // and in Light the title bar shares @title_bar_bg with the chrome behind it.
++  root->setContentsMargins(1, 1, 1, 1);
++  root->setSpacing(0);
++
++  auto* title_bar = build_dialog_chrome_title_bar(dialog, title, close_mode);
+ 
+   auto* content = new QWidget(&dialog);
+   content->setObjectName(QStringLiteral("dialogChromeContent"));
+@@ -1412,6 +1423,35 @@ QVBoxLayout* install_dark_dialog_chrome(QDialog& dialog, QVBoxLayout* root, cons
+   return content_layout;
+ }
+ 
++#ifdef Q_OS_ANDROID
++void wrap_dialog_in_chrome_for_android(QDialog& dialog) {
++  if (dialog.property("patchy.androidChrome").toBool()) {
++    return;
++  }
++  dialog.setProperty("patchy.androidChrome", true);
++  if (dialog.findChild<QWidget*>(QStringLiteral("dialogChromeTitleBar"), Qt::FindDirectChildrenOnly) != nullptr) {
++    return;  // Already Patchy's own chrome.
++  }
++  QLayout* layout = dialog.layout();
++  if (layout == nullptr) {
++    return;
++  }
++  // Android draws no frame around an app's own windows. Move the dialog's layout
++  // (and the widgets it manages) into a body under the same title bar Patchy's
++  // frameless dialogs have; the window flags stay as they are, since changing
++  // them while the dialog is being shown would hide it again.
++  auto* body = new QWidget(&dialog);
++  body->setObjectName(QStringLiteral("dialogChromeContent"));
++  body->setLayout(layout);
++  auto* root = new QVBoxLayout(&dialog);
++  root->setContentsMargins(1, 1, 1, 1);
++  root->setSpacing(0);
++  append_themed_style(dialog, dialog_chrome_style());
++  root->addWidget(build_dialog_chrome_title_bar(dialog, dialog.windowTitle(), DialogChromeCloseMode::Reject));
++  root->addWidget(body, 1);
++}
++#endif
++
+ void set_dialog_position_memory_id(QDialog& dialog, const QString& id) {
+   dialog.setProperty(kDialogPositionMemoryIdProperty, id);
+ }
+diff --git a/src/ui/dialog_utils.hpp b/src/ui/dialog_utils.hpp
+index 37d2514..c027b5a 100644
+--- a/src/ui/dialog_utils.hpp
++++ b/src/ui/dialog_utils.hpp
+@@ -128,6 +128,13 @@ protected:
+ enum class DialogChromeCloseMode { Reject, Accept };
+ QVBoxLayout* install_dark_dialog_chrome(QDialog& dialog, QVBoxLayout* root, const QString& title,
+                                         DialogChromeCloseMode close_mode = DialogChromeCloseMode::Reject);
++
++#ifdef Q_OS_ANDROID
++// Android draws no frame around a dialog: gives one that lacks Patchy's own
++// chrome the same title bar and outline (main.cpp calls it for every dialog as
++// it is first polished). Does nothing for a dialog without a layout.
++void wrap_dialog_in_chrome_for_android(QDialog& dialog);
++#endif
+ // Overrides the settings group used by remember_dialog_position (defaults to the
+ // dialog's objectName). Lets dialogs that share an objectName (for tests/styling)
+ // keep separate remembered positions. Set before remember_dialog_position runs.
+diff --git a/src/ui/dialog_utils_android.cpp b/src/ui/dialog_utils_android.cpp
+index 30a19e0..b6fc394 100644
+--- a/src/ui/dialog_utils_android.cpp
++++ b/src/ui/dialog_utils_android.cpp
+@@ -21,6 +21,7 @@ namespace {
+ 
+ constexpr auto kJavaFiles = "io/github/kuscher/canvas/CanvasFiles";
+ constexpr auto kUriFile = ".uri";
++constexpr auto kLocationFile = ".where";
+ 
+ QJniObject android_context() {
+   return QJniObject(QNativeInterface::QAndroidApplication::context());
+@@ -42,6 +43,13 @@ void java_persist(const QString& uri) {
+                                      android_context().object(), jstring_of(uri).object<jstring>());
+ }
+ 
++QString java_location_label(const QString& uri) {
++  const auto label = QJniObject::callStaticObjectMethod(
++      kJavaFiles, "locationLabel", "(Landroid/content/Context;Ljava/lang/String;)Ljava/lang/String;",
++      android_context().object(), jstring_of(uri).object<jstring>());
++  return label.isValid() ? label.toString() : QString();
++}
++
+ bool java_copy_to_file(const QString& uri, const QString& path) {
+   return QJniObject::callStaticMethod<jboolean>(
+       kJavaFiles, "copyToFile", "(Landroid/content/Context;Ljava/lang/String;Ljava/lang/String;)Z",
+@@ -142,6 +150,10 @@ QString working_copy_for(const QString& uri, const QString& name) {
+   if (file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+     file.write(uri.toUtf8());
+   }
++  QFile where(folder + QLatin1Char('/') + QString::fromLatin1(kLocationFile));
++  if (where.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
++    where.write(java_location_label(uri).toUtf8());
++  }
+   return folder + QLatin1Char('/') + safe_file_name(name);
+ }
+ 
+@@ -254,6 +266,23 @@ void watch_new_documents(std::function<void(const QStringList&)> open) {
+   }
+ }
+ 
++QString document_location(const QString& path) {
++  if (!is_working_copy(path)) {
++    return {};
++  }
++  QFile where(QFileInfo(path).absoluteDir().filePath(QString::fromLatin1(kLocationFile)));
++  return where.open(QIODevice::ReadOnly) ? QString::fromUtf8(where.readAll()).trimmed() : QString();
++}
++
++QString display_path(const QString& path) {
++  if (!is_working_copy(path)) {
++    return QDir::toNativeSeparators(path);
++  }
++  const auto location = document_location(path);
++  const auto name = QFileInfo(path).fileName();
++  return location.isEmpty() ? name : location + QStringLiteral(" \u203a ") + name;
++}
++
+ bool is_working_copy(const QString& path) {
+   return !document_uri_for(path).isEmpty();
+ }
+diff --git a/src/ui/dialog_utils_android.hpp b/src/ui/dialog_utils_android.hpp
+index dbbb603..767fbad 100644
+--- a/src/ui/dialog_utils_android.hpp
++++ b/src/ui/dialog_utils_android.hpp
+@@ -38,6 +38,14 @@ namespace patchy::ui::android_files {
+ // Whether path is the working copy of a document.
+ [[nodiscard]] bool is_working_copy(const QString& path);
+ 
++// Where a working copy's document lives, for people ("Downloads", "Google
++// Drive"); empty for other paths.
++[[nodiscard]] QString document_location(const QString& path);
++
++// What to show for a path in Recent Files: "Downloads › photo.png" for a
++// working copy, the native path otherwise.
++[[nodiscard]] QString display_path(const QString& path);
++
+ // Refreshes a working copy from its document before it is opened again (a
+ // recent file), when the document is still reachable. Keeps the old copy
+ // otherwise.
+diff --git a/src/ui/main_window_files.cpp b/src/ui/main_window_files.cpp
+index c17025a..0d68d0a 100644
+--- a/src/ui/main_window_files.cpp
++++ b/src/ui/main_window_files.cpp
+@@ -4236,7 +4236,11 @@ void MainWindow::rebuild_recent_files_menu() {
+   }
+ 
+   const auto add_recent_action = [this](QMenu* menu, const QString& path, int index) {
++#ifdef Q_OS_ANDROID
++    const auto label = tr("&%1 %2").arg(index).arg(android_files::display_path(path));
++#else
+     const auto label = tr("&%1 %2").arg(index).arg(QDir::toNativeSeparators(path));
++#endif
+     auto* action = menu->addAction(label);
+     action->setToolTip(path);
+     action->setData(path);
+diff --git a/src/ui/start_panel.cpp b/src/ui/start_panel.cpp
+index ba6e424..d08e24d 100644
+--- a/src/ui/start_panel.cpp
++++ b/src/ui/start_panel.cpp
+@@ -1,4 +1,7 @@
+ #include "ui/start_panel.hpp"
++#ifdef Q_OS_ANDROID
++#include "ui/dialog_utils_android.hpp"
++#endif
+ 
+ #include "ui/app_credits.hpp"
+ #include "ui/build_info.hpp"
+@@ -113,9 +116,17 @@ class RecentFileDelegate final : public QStyledItemDelegate {
+     painter->setPen(theme().start_panel_muted_text);
+     const QRect path_rect(text_area.left(), text_area.top() + text_area.height() / 2, text_area.width(),
+                           text_area.height() - text_area.height() / 2);
++#ifdef Q_OS_ANDROID
++    // A working copy's folder is app-internal; name where its document lives instead.
++    auto where = android_files::document_location(path);
++    if (where.isEmpty() && !android_files::is_working_copy(path)) {
++      where = QDir::toNativeSeparators(info.absolutePath());
++    }
++#else
++    const auto where = QDir::toNativeSeparators(info.absolutePath());
++#endif
+     painter->drawText(path_rect, Qt::AlignLeft | Qt::AlignVCenter,
+-                      QFontMetrics(path_font).elidedText(QDir::toNativeSeparators(info.absolutePath()),
+-                                                         Qt::ElideMiddle, path_rect.width()));
++                      QFontMetrics(path_font).elidedText(where, Qt::ElideMiddle, path_rect.width()));
+     painter->restore();
+   }
+ };
+@@ -461,7 +472,11 @@ void StartPanel::rebuild_recent_rows() {
+     }
+     auto* item = new QListWidgetItem(QFileInfo(path).fileName(), recent_list_);
+     item->setData(kRecentPathRole, path);
++#ifdef Q_OS_ANDROID
++    item->setToolTip(android_files::display_path(path));
++#else
+     item->setToolTip(native_path);
++#endif
+   }
+ 
+   const bool has_entries = !recent_paths_.isEmpty();

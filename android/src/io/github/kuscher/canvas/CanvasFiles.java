@@ -4,8 +4,10 @@ package io.github.kuscher.canvas;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.ProviderInfo;
 import android.database.Cursor;
 import android.net.Uri;
+import android.provider.DocumentsContract;
 import android.provider.OpenableColumns;
 import android.util.Log;
 
@@ -72,6 +74,54 @@ public final class CanvasFiles {
             }
         }
         return uris.toArray(new String[0]);
+    }
+
+    /**
+     * Where a document lives, for people: "Downloads", "Pictures › Holiday", "Google Drive".
+     * Shown in Recent Files instead of the working copy's path.
+     */
+    public static String locationLabel(Context context, String uri) {
+        Uri u = Uri.parse(uri);
+        String authority = u.getAuthority();
+        if (authority == null) {
+            return "";
+        }
+        try {
+            if (DocumentsContract.isDocumentUri(context, u)) {
+                String id = DocumentsContract.getDocumentId(u);
+                if (authority.equals("com.android.externalstorage.documents")) {
+                    String relative = id.substring(id.indexOf(':') + 1);
+                    int slash = relative.lastIndexOf('/');
+                    return slash > 0 ? relative.substring(0, slash).replace("/", " \u203a ") : "Files";
+                }
+                if (authority.equals("com.android.providers.downloads.documents")) {
+                    return "Downloads";
+                }
+                if (authority.equals("com.android.providers.media.documents")) {
+                    return "Photos & videos";
+                }
+            }
+        } catch (RuntimeException e) {
+            // Fall through to the provider's name.
+        }
+        switch (authority) {
+            case "media":
+                return "Files";
+            case "com.google.android.apps.docs.storage":
+                return "Google Drive";
+            case "com.google.android.apps.photos.contentprovider":
+                return "Google Photos";
+            default:
+                break;
+        }
+        ProviderInfo provider = context.getPackageManager().resolveContentProvider(authority, 0);
+        if (provider != null) {
+            CharSequence label = provider.loadLabel(context.getPackageManager());
+            if (label != null && label.length() > 0) {
+                return label.toString();
+            }
+        }
+        return "";
     }
 
     /** Keeps read (and, where granted, write) access across restarts, for recent files and Save. */
