@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Alexander <4418484+kuscher@users.noreply.github.com>
 Date: Tue, 29 Sep 2026 06:53:38 +0000
-Subject: [PATCH 05/14] Android: caption bar in the menu bar's color
+Subject: [PATCH 05/15] Android: caption bar in the menu bar's color
 
 In a desktop window the system tints the caption bar from the wallpaper.
 Canvas's activity makes it transparent over the menu bar's color

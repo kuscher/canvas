@@ -1,0 +1,164 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Alexander <4418484+kuscher@users.noreply.github.com>
+Date: Tue, 29 Sep 2026 15:31:08 +0000
+Subject: [PATCH 15/15] Android: pinch to zoom and two-finger pan, and flash
+ diagnostics
+
+CanvasGestures (Java) turns trackpad pinches (CLASSIFICATION_PINCH) and
+two-finger touchscreen gestures into Patchy's native zoom gesture and
+pixel-delta wheel events on the widget under the fingers; a single finger
+still draws (it is held back ~90 ms in case a second one lands). Temporary
+CanvasDiag log lines trace window corrections, caption changes and
+application states while a reported flash is tracked down.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/app/main.cpp          |  2 ++
+ src/ui/android_window.cpp | 69 +++++++++++++++++++++++++++++++++++++++
+ src/ui/android_window.hpp |  5 +++
+ 3 files changed, 76 insertions(+)
+
+diff --git a/src/app/main.cpp b/src/app/main.cpp
+index de3fcfd..15909f2 100644
+--- a/src/app/main.cpp
++++ b/src/app/main.cpp
+@@ -809,6 +809,7 @@ int main(int argc, char* argv[]) {
+ #ifdef Q_OS_ANDROID
+   patchy::ui::android_window::put_menu_bar_in_caption(window);
+   patchy::ui::android_window::show_document_names_in_status_bar(window);
++  patchy::ui::android_window::route_gestures_to_widgets();
+ #endif
+   window.show();
+   if (stress_mode) {
+@@ -868,6 +869,7 @@ int main(int argc, char* argv[]) {
+   // (docs/document-recovery.md).
+   QObject::connect(&app, &QGuiApplication::applicationStateChanged, &window,
+                    [&window](Qt::ApplicationState state) {
++                     qWarning("CanvasDiag application state %d", int(state));
+                      if (state == Qt::ApplicationSuspended || state == Qt::ApplicationHidden) {
+                        (void)window.write_recovery_now(false);
+                      }
+diff --git a/src/ui/android_window.cpp b/src/ui/android_window.cpp
+index f7e1361..38848a7 100644
+--- a/src/ui/android_window.cpp
++++ b/src/ui/android_window.cpp
+@@ -9,7 +9,11 @@
+ #include <QEvent>
+ #include <QJniEnvironment>
+ #include <QJniObject>
++#include <QApplication>
+ #include <QMainWindow>
++#include <QNativeGestureEvent>
++#include <QPointingDevice>
++#include <QWheelEvent>
+ #include <QMenuBar>
+ #include <QPointer>
+ #include <QRegularExpression>
+@@ -87,10 +91,14 @@ class CaptionMenuBar final : public QObject {
+       return;
+     }
+     if ((state & Qt::WindowMaximized) == 0) {
++      qWarning("CanvasDiag keep_filling: state %d -> maximized", int(state));
+       window_->setWindowState(state | Qt::WindowMaximized);
+     }
+     const QRect available = window_->screen()->availableGeometry();
+     if (available.isValid() && window_->geometry() != available) {
++      qWarning("CanvasDiag keep_filling: geometry %d,%d %dx%d -> %d,%d %dx%d", window_->x(), window_->y(),
++               window_->width(), window_->height(), available.x(), available.y(), available.width(),
++               available.height());
+       window_->setGeometry(available);
+     }
+   }
+@@ -118,6 +126,7 @@ class CaptionMenuBar final : public QObject {
+                   .arg(r);
+     }
+     if (style != applied_) {
++      qWarning("CanvasDiag caption: height %d left %d right %d (device px)", height, left, right);
+       applied_ = style;
+       bar->setStyleSheet(style);
+     }
+@@ -127,8 +136,68 @@ class CaptionMenuBar final : public QObject {
+   QString applied_;
+ };
+ 
++// Window pixels from Java to a logical point on the main window's screen.
++QPointF logical_point(float x, float y) {
++  const QWidget* window = QApplication::activeWindow();
++  const double ratio = window != nullptr ? window->devicePixelRatio() : qApp->devicePixelRatio();
++  return ratio > 0.0 ? QPointF(x / ratio, y / ratio) : QPointF(x, y);
++}
++
++QWidget* widget_under(const QPointF& point) {
++  auto* widget = QApplication::widgetAt(point.toPoint());
++  return widget;
++}
++
++void deliver_zoom(float x, float y, float factor) {
++  const auto global = logical_point(x, y);
++  for (auto* widget = widget_under(global); widget != nullptr; widget = widget->parentWidget()) {
++    const auto local = widget->mapFromGlobal(global);
++    QNativeGestureEvent event(Qt::ZoomNativeGesture, QPointingDevice::primaryPointingDevice(), 2, local, local,
++                              global, factor - 1.0, QPointF());
++    event.setAccepted(false);
++    QCoreApplication::sendEvent(widget, &event);
++    if (event.isAccepted()) {
++      return;
++    }
++    if (widget->isWindow()) {
++      return;
++    }
++  }
++}
++
++void deliver_pan(float x, float y, float dx, float dy) {
++  const auto global = logical_point(x, y);
++  auto* widget = widget_under(global);
++  if (widget == nullptr) {
++    return;
++  }
++  const auto delta = logical_point(dx, dy).toPoint();
++  QWheelEvent event(widget->mapFromGlobal(global), global, delta, delta * 2, Qt::NoButton, Qt::NoModifier,
++                    Qt::ScrollUpdate, false, Qt::MouseEventSynthesizedByApplication);
++  QCoreApplication::sendEvent(widget, &event);
++}
++
++void JNICALL java_zoom(JNIEnv*, jclass, jfloat x, jfloat y, jfloat factor) {
++  QMetaObject::invokeMethod(qApp, [x, y, factor] { deliver_zoom(x, y, factor); }, Qt::QueuedConnection);
++}
++
++void JNICALL java_pan(JNIEnv*, jclass, jfloat x, jfloat y, jfloat dx, jfloat dy) {
++  QMetaObject::invokeMethod(qApp, [x, y, dx, dy] { deliver_pan(x, y, dx, dy); }, Qt::QueuedConnection);
++}
++
+ }  // namespace
+ 
++void route_gestures_to_widgets() {
++  const JNINativeMethod methods[] = {
++      {"nativeZoom", "(FFF)V", reinterpret_cast<void*>(java_zoom)},
++      {"nativePan", "(FFFF)V", reinterpret_cast<void*>(java_pan)},
++  };
++  QJniEnvironment env;
++  if (!env.registerNativeMethods("io/github/kuscher/canvas/CanvasGestures", methods, 2)) {
++    qWarning("Canvas: could not register the gesture callbacks");
++  }
++}
++
+ void show_document_names_in_status_bar(QMainWindow& window) {
+   auto* bar = window.statusBar();
+   const auto root = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + QStringLiteral("/documents/");
+diff --git a/src/ui/android_window.hpp b/src/ui/android_window.hpp
+index f44440a..5c4ee6f 100644
+--- a/src/ui/android_window.hpp
++++ b/src/ui/android_window.hpp
+@@ -23,6 +23,11 @@ void put_menu_bar_in_caption(QMainWindow& window);
+ // photo.psd").
+ void show_document_names_in_status_bar(QMainWindow& window);
+ 
++// Pinch and pan from CanvasGestures (Java): trackpad pinches and two-finger
++// touchscreen gestures become Patchy's native zoom gesture (as macOS trackpads
++// send) and pixel-delta wheel events (a pan) on the widget under the fingers.
++void route_gestures_to_widgets();
++
+ // File > Print: writes the page as a PDF (write_print_pdf) on the locale's
+ // paper (A4, or Letter where inches rule), turned to the document's
+ // orientation, and opens Android's print dialog with it. Returns false when

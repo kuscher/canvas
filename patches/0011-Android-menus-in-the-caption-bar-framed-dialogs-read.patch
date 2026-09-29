@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Alexander <4418484+kuscher@users.noreply.github.com>
 Date: Tue, 29 Sep 2026 08:09:03 +0000
-Subject: [PATCH 11/14] Android: menus in the caption bar, framed dialogs,
+Subject: [PATCH 11/15] Android: menus in the caption bar, framed dialogs,
  readable recent files
 
 - The main window draws under the transparent caption bar and the menu bar

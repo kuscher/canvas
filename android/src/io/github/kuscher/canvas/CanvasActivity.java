@@ -5,7 +5,10 @@ import android.app.ActivityManager;
 import android.graphics.Rect;
 import android.graphics.drawable.ColorDrawable;
 import android.os.Build;
+import android.content.res.Configuration;
 import android.os.Bundle;
+import android.util.Log;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewTreeObserver;
 import android.view.WindowInsets;
@@ -53,6 +56,35 @@ public class CanvasActivity extends QtActivity {
     }
 
     private volatile int[] caption = {0, 0, 0};
+    private final CanvasGestures gestures = new CanvasGestures(this::dispatchToQt);
+
+    private void dispatchToQt(MotionEvent event) {
+        super.dispatchTouchEvent(event);
+    }
+
+    // Diagnostics for the "the window flashes" report: lifecycle and configuration
+    // changes, logged with the tag CanvasDiag.
+    @Override
+    public void onConfigurationChanged(Configuration configuration) {
+        Log.i("CanvasDiag", "configuration " + configuration);
+        super.onConfigurationChanged(configuration);
+    }
+
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        Log.i("CanvasDiag", "focus " + hasFocus);
+        super.onWindowFocusChanged(hasFocus);
+    }
+
+    @Override
+    public boolean dispatchTouchEvent(MotionEvent event) {
+        return gestures.onTouch(event) || super.dispatchTouchEvent(event);
+    }
+
+    @Override
+    public boolean dispatchGenericMotionEvent(MotionEvent event) {
+        return gestures.onTouch(event) || super.dispatchGenericMotionEvent(event);
+    }
 
     /**
      * Where the desktop caption bar sits over the window, in window pixels: its height,
@@ -78,7 +110,11 @@ public class CanvasActivity extends QtActivity {
                 }
             }
         }
-        caption = new int[] {height, left, right};
+        int[] next = {height, left, right};
+        if (next[0] != caption[0] || next[1] != caption[1] || next[2] != caption[2]) {
+            Log.i("CanvasDiag", "caption " + height + " " + left + " " + right);
+        }
+        caption = next;
     }
 
     /** Called from C++: {height, left, right} of the caption bar in window pixels. */
