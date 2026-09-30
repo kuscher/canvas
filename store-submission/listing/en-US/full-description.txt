@@ -1,0 +1,30 @@
+Canvas is a desktop-style image editor for Android laptops, built on Patchy, the free and open-source editor by Seth A. Robinson. It opens and saves PSD and PSB files with their layers, and it works entirely offline.
+
+Layers the way you know them
+Layers with masks, blend modes and groups, adjustment layers and layer styles, Smart Objects, editable text and vector shapes.
+
+Painting and editing
+Brushes with pressure dynamics, selections, filters, gradients and patterns. Adjustments preview live on the canvas.
+
+Your formats
+PSD and PSB in and out with their layers, plus PNG, JPEG, WebP, TIFF, GIF, SVG, RAW photos and more. JavaScript scripting, palettes and seamless tiling come from Patchy too.
+
+A real desktop window
+The menu bar sits in the window's title bar next to the window buttons, menus follow the pointer, dialogs have proper frames, and everything stays sharp at any display scaling, maximised, restored or resized.
+
+Your files, the Android way
+Open and Save use the system file picker, so Downloads, Google Drive, USB drives and other apps' storage all work. Open with and Share from your files, photos or browser open images straight in Canvas.
+
+Trackpad and touch
+Pinch to zoom and pan with two fingers; a single finger still paints.
+
+Nothing gets lost
+If Android closes Canvas in the background, your unsaved documents come back the next time you open it. Print through Android's print dialog, including Save as PDF.
+
+Dark by default, with Auto (follow the system) and Light one click away in the menu bar.
+
+Private
+No internet permission, no accounts, no ads, no analytics. Canvas sees only the files you open in it.
+
+Free and open source
+Canvas is a personal passion project by Alexander Kuscher, not affiliated with or endorsed by any employer, or by Patchy's author. The code is MIT-licensed: github.com/kuscher/canvas
