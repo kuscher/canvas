@@ -23,7 +23,7 @@ SRC=$C/patchy
 source <(grep -E '^[A-Z_]+=' "$ROOT/UPSTREAM" "$ROOT/VERSION" | cut -d: -f2-)
 V=$VERSION_NAME
 OUT=$ROOT/dist/v$V
-RELEASE_CERT=e0f8b1332b19c09cda26fac4f73300a157ae9639fc3f37bcd8804677a38684df
+RELEASE_CERT=4fe4244183ead0ca241fae394f1fbf4a062bc58970a7208263853d18742eff03
 QT_MODULES=(qtbase qtdeclarative qtsvg qtimageformats)
 die() { echo "release: $*" >&2; exit 1; }
 

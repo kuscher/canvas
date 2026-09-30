@@ -41,8 +41,8 @@ with Qt for Android, for Googlebooks. Plan and decisions: docs/PLAN.md. Research
   Overview twice to bring it back), so prefer telling the user it refreshes on its own.
 - `./cv build` refreshes Canvas's cache variables (VERSION, notices, logo) on every run.
 - Release: bump `VERSION`, add a `CHANGELOG.md` section, `./cv build universal` (signed with
-  `~/.config/canvas/keystore.jks`; backed up in the user's a private folder, the
-  password only in their password manager), then `tools/release.sh` (checks signature, version,
+  `~/.config/canvas/keystore.jks`; a new key since 2026-09-30, also Google Play's; backed up with its
+  password in the user's a private folder), then `tools/release.sh` (checks signature, version,
   ABIs and a clean tree; writes dist/v<version>: Canvas.apk, the source tarball with the patched
   Patchy, the Qt module sources from `aqt install-src`, SHA256SUMS) and `tools/release.sh --publish`.
   The user makes the repo public themselves.
