@@ -126,7 +126,8 @@ jobs:
           mkdir -p out && cp "$apk" "out/Canvas-$VERSION_NAME-unsigned.apk"
           # The App Bundle Google Play takes (same build, both ABIs); signed with the release key where the key is.
           cmake --build build --target aab -j "$(nproc)"
-          aab=$(find build/android-build -name '*.aab' | head -1)
+          aab=$(find build/android-build -path '*/bundle/release/*' -name '*.aab' | head -1)
+          [[ -n $aab ]] || { echo '::error::no release App Bundle'; exit 1; }
           cp "$aab" "out/Canvas-$VERSION_NAME-unsigned.aab"
           ls -la out
 
