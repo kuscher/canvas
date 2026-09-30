@@ -124,6 +124,10 @@ jobs:
           ccache -s | head -12
           apk=$(find build/android-build -name '*release-unsigned.apk' | head -1)
           mkdir -p out && cp "$apk" "out/Canvas-$VERSION_NAME-unsigned.apk"
+          # The App Bundle Google Play takes (same build, both ABIs); signed with the release key where the key is.
+          cmake --build build --target aab -j "$(nproc)"
+          aab=$(find build/android-build -name '*.aab' | head -1)
+          cp "$aab" "out/Canvas-$VERSION_NAME-unsigned.aab"
           ls -la out
 
       - name: Save ccache
@@ -138,6 +142,12 @@ jobs:
         with:
           name: canvas-apk
           path: out/*.apk
+
+      - name: Upload the unsigned App Bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: canvas-aab
+          path: out/*.aab
           retention-days: 14
 
   smoke:
