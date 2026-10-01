@@ -157,10 +157,12 @@ jobs:
           BT=$ANDROID_HOME/build-tools/36.0.0
           APK=dist/Canvas.apk
           AAB=bundle/Canvas.aab
-          "$BT/apksigner" verify --print-certs "$APK" | grep -q "SHA-256 digest: $CERT" \
-            || { echo "::error::the APK isn't signed with the Canvas release key"; exit 1; }
-          test "$(keytool -printcert -jarfile "$AAB" | sed -n 's/.*SHA256: //p' | head -1 | tr -d ':' | tr 'A-F' 'a-f')" = "$CERT" \
-            || { echo "::error::the bundle isn't signed with the Canvas release key"; exit 1; }
+          apk_cert=$("$BT/apksigner" verify --print-certs "$APK" | sed -n 's/.*SHA-256 digest: //p' | head -1)
+          aab_cert=$(keytool -printcert -jarfile "$AAB" | sed -n 's/.*SHA256: //p' | head -1 | tr -d ':' | tr 'A-F' 'a-f')
+          echo "certificate SHA-256 of the APK:    $apk_cert"
+          echo "certificate SHA-256 of the bundle: $aab_cert"
+          test "$apk_cert" = "$CERT" || { echo "::error::the APK isn't signed with the Canvas release key"; exit 1; }
+          test "$aab_cert" = "$CERT" || { echo "::error::the bundle isn't signed with the Canvas release key"; exit 1; }
           badging=$("$BT/aapt2" dump badging "$APK" | head -1)
           echo "$badging"
           case $badging in
