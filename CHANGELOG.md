@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.1 (2026-10-01)
+
+- **On Google Play, Canvas is for Googlebooks only.** Play offers it to devices that report
+  themselves as a PC. Nothing changes in the app, and the APK from GitHub still installs anywhere.
+
 ## 0.1 (2026-09-29)
 
 The first release: Patchy 1.00, the open-source Photoshop-style image editor, as an app for every

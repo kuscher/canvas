@@ -11,7 +11,10 @@
     android:versionCode="-- %%INSERT_VERSION_CODE%% --"
     android:versionName="-- %%INSERT_VERSION_NAME%% --">
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
-    <uses-feature android:name="android.hardware.type.pc" android:required="false" />
+    <!-- Google Play offers Canvas only to devices that say they are a PC (Googlebooks; ChromeOS devices
+         are excluded in Play's device catalog). Android itself doesn't check this, so the APK from
+         GitHub still installs anywhere. -->
+    <uses-feature android:name="android.hardware.type.pc" android:required="true" />
     <supports-screens
         android:anyDensity="true"
         android:largeScreens="true"
