@@ -30,9 +30,13 @@ made with `scripts/play/graphics.mjs` in kuscher/googlebook-tech.
 1. **App signing (decide once, it can't be undone).** Recommended, as for Summa: *Use existing app signing key* and upload
    the Canvas release key (the one `tools/release.sh` checks) with Google's PEPK tool, so the Play build and the APKs on GitHub have the same signature and people can
    move between them without uninstalling. The same key is the upload key.
-2. **Build the bundle** (Play only takes .aab files): `./cv build universal` makes the APK for GitHub. Play takes only an App Bundle: build the same universal configuration with Qt's `aab` CMake target (`cmake --build <build dir> --target aab`), signed with the Canvas release key (the same one `tools/release.sh` checks, SHA-256 `e0f8b133…`). Play then serves each Googlebook only its own ABI. Each upload needs a higher version code than the last
-   (VERSION (`VERSION_CODE`)).
+2. **The bundle** (Play only takes .aab files): a tag `v<version>` builds it in GitHub Actions (the same universal
+   configuration as the APK, with Qt's `aab` CMake target), signs it with the Canvas release key (the same one
+   `tools/release.sh` checks, SHA-256 `4fe42441…`) and uploads it to the closed-testing track as a draft; see
+   [docs/RELEASING.md](../docs/RELEASING.md). Play then serves each Googlebook only its own ABI. Each upload needs a
+   higher version code than the last (`VERSION_CODE` in `VERSION`).
 3. **Closed test first.** The developer account is a personal one: before production, a closed test with at least 12
    testers opted in for 14 days in a row.
 4. **Store listing, store settings and App content:** filled in from these files on 30 September 2026.
-5. **Release:** add the bundle to the closed testing track, paste `release-notes.txt`, send for review.
+5. **Release:** the tag's draft on the closed testing track carries `release-notes.txt`; open it in the Play Console
+   and send it for review. Nothing goes to review on its own.

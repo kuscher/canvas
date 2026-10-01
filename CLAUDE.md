@@ -27,8 +27,9 @@ with Qt for Android, for Googlebooks. Plan and decisions: docs/PLAN.md. Research
   cores; the universal APK about 6 minutes. AGP runs its x86_64 aapt2 through the VM's existing
   qemu-user binfmt; `~/Android/Sdk/ndk/27.2.12479018` links to the wrapped NDK so AGP strips.
 - CI (`.github/workflows/build.yml`): stock NDK, x86_64 host Qt, one universal APK (Qt's
-  multi-ABI build: `QT_ANDROID_ABIS`), uploaded unsigned; then a launch check in an Android 16
-  x86_64 emulator. Runs queue (no cancel-in-progress).
+  multi-ABI build: `QT_ANDROID_ABIS`) and the same build as an App Bundle, uploaded unsigned; then
+  a launch check in an Android 16 x86_64 emulator. Runs queue (no cancel-in-progress).
+  `release.yml` calls this workflow for a tag and signs what it made in a separate job.
 - Patchy's build checks its translation catalogs against the sources, so Canvas's own UI text is
   plain `QStringLiteral` English (never `tr()`), or the check fails.
 
@@ -40,12 +41,19 @@ with Qt for Android, for Googlebooks. Plan and decisions: docs/PLAN.md. Research
   its cached icon; restarting the launcher can leave the desktop taskbar stashed (open and close
   Overview twice to bring it back), so prefer telling the user it refreshes on its own.
 - `./cv build` refreshes Canvas's cache variables (VERSION, notices, logo) on every run.
-- Release: bump `VERSION`, add a `CHANGELOG.md` section, `./cv build universal` (signed with
-  `~/.config/canvas/keystore.jks`; a new key since 2026-09-30, also Google Play's; backed up with its
-  password in the user's a private folder), then `tools/release.sh` (checks signature, version,
-  ABIs and a clean tree; writes dist/v<version>: Canvas.apk, the source tarball with the patched
-  Patchy, the Qt module sources from `aqt install-src`, SHA256SUMS) and `tools/release.sh --publish`.
-  The user makes the repo public themselves.
+- Release (docs/RELEASING.md): bump `VERSION` (name and code), add a `CHANGELOG.md` section and the
+  Play text (`store-submission/listing/en-US/release-notes.txt`, 500 characters at most), push, then
+  `git tag vX && git push origin vX`. GitHub builds (`build.yml`, no key), signs and publishes
+  (`release.yml`): Canvas.apk, the source tarball with the patched Patchy, the Qt module sources and
+  SHA256SUMS as a GitHub release, and the bundle as a draft on Play's closed testing. Sending the
+  draft for review stays a button in the Play Console. No key file needed: the key (a new one since
+  2026-09-30, also Google Play's) is in the `release` environment's secrets on GitHub, backed up with
+  its password in the user's a private folder.
+  "Run workflow" on release.yml is a dry run (same build, signing and checks, nothing published).
+- Fallback on a machine that has the key in `~/.config/canvas`: `./cv build universal`, then
+  `tools/release.sh` (checks signature, version, ABIs and a clean tree; writes dist/v<version>) and
+  `tools/release.sh --publish` (its tag also starts release.yml, which leaves the release alone and
+  sends the bundle to Play).
 - README screenshots: `tools/demo_art.py` writes the demo PSD (put it in Downloads with
   `content insert/write --user 10` on content://media/external/downloads, open it with Canvas's
   Open…, delete the row afterwards), capture a 1536x960 window with `./cv shot`, then

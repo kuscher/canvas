@@ -143,7 +143,8 @@ Android and the Android NDK r27c.
 
 `./cv` builds on an arm64 Linux machine such as the Googlebook's Linux Terminal; the
 [GitHub Actions workflow](.github/workflows/build.yml) builds the same universal APK on x86_64
-Linux and starts it in an Android 16 emulator on every push. Developer notes are in
+Linux and starts it in an Android 16 emulator on every push. A version tag makes a release: GitHub
+builds, signs and publishes it ([`docs/RELEASING.md`](docs/RELEASING.md)). Developer notes are in
 [`CLAUDE.md`](CLAUDE.md); the original plan and research are in [`docs/`](docs/).
 
 ## Made on a Googlebook
