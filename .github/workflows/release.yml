@@ -1,0 +1,241 @@
+# Pushing a tag like v0.2 builds, signs and publishes that release: the APK and its sources as a
+# GitHub release, the bundle as a draft on Google Play's closed-testing track (see docs/RELEASING.md).
+# "Run workflow" on the Actions tab is a dry run: the same build, signing and checks, nothing published.
+#
+# The build is build.yml's (Qt, the NDK and Patchy come from outside) and never sees a key. The signing
+# key and the Play key are secrets of the environments "release" and "play", which only main and v*
+# tags can use; forks and pull requests never get them. The job that holds the signing key only signs
+# and checks what the build made, with GitHub's own actions pinned to exact commits, and the Play job
+# never sees that key.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CERT: 4fe4244183ead0ca241fae394f1fbf4a062bc58970a7208263853d18742eff03 # the Canvas release key
+  PLAY_NOTES: store-submission/listing/en-US/release-notes.txt
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Release notes and version
+        run: |
+          . ./VERSION
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            test "$GITHUB_REF_NAME" = "v$VERSION_NAME" || { echo "::error::VERSION_NAME in VERSION is $VERSION_NAME, not ${GITHUB_REF_NAME#v}"; exit 1; }
+          fi
+          grep -Eq "^## $VERSION_NAME( |\$)" CHANGELOG.md || { echo "::error::CHANGELOG.md has no section for $VERSION_NAME"; exit 1; }
+          test "$(wc -m < "$PLAY_NOTES")" -le 500 || { echo "::error::$PLAY_NOTES is over Play's 500 characters"; exit 1; }
+
+  # The unsigned APK and App Bundle (artifacts canvas-apk and canvas-aab), then the launch check in the
+  # emulator. No environment, so no secrets.
+  build:
+    needs: check
+    uses: ./.github/workflows/build.yml
+
+  # What a release carries next to the APK (the same files as tools/release.sh): Canvas with the patched
+  # Patchy, and the source of the Qt modules the app ships (LGPL-3.0).
+  sources:
+    needs: check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: canvas
+          persist-credentials: false
+
+      - name: Canvas with the patched Patchy
+        run: |
+          . canvas/UPSTREAM
+          . canvas/VERSION
+          git init -q patchy
+          git -C patchy remote add origin "$PATCHY_REPO"
+          git -C patchy fetch -q --depth 1 origin "$PATCHY_COMMIT"
+          git -C patchy checkout -q --detach FETCH_HEAD
+          git -C patchy -c user.name=Canvas -c user.email=ci@invalid am -q "$GITHUB_WORKSPACE"/canvas/patches/*.patch
+          mkdir sources
+          git -C canvas archive --format=tar --prefix="canvas-$VERSION_NAME/" HEAD > canvas.tar
+          git -C patchy archive --format=tar --prefix="canvas-$VERSION_NAME/patchy/" HEAD > patchy.tar
+          tar --concatenate --file=canvas.tar patchy.tar
+          gzip -9n < canvas.tar > "sources/Canvas-$VERSION_NAME-source.tar.gz"
+
+      - name: Qt's source
+        run: |
+          . canvas/UPSTREAM
+          MODULES="qtbase qtdeclarative qtsvg qtimageformats"
+          pipx install aqtinstall
+          aqt install-src linux "$QT_VERSION" --archives $MODULES --keep --archive-dest sources -O qt-src
+          for m in $MODULES; do
+            ls sources/"$m-everywhere-src-$QT_VERSION".tar.* > /dev/null || { echo "::error::no $m source archive"; exit 1; }
+          done
+          ls -la sources
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sources
+          path: sources/
+          if-no-files-found: error
+          retention-days: 14
+
+  sign:
+    needs: [build, sources]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: release
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: SDK packages
+        run: $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install "build-tools;36.0.0" > /dev/null
+
+      - name: The unsigned build and the sources
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download "$GITHUB_RUN_ID" --name canvas-apk --dir unsigned
+          gh run download "$GITHUB_RUN_ID" --name canvas-aab --dir unsigned
+          gh run download "$GITHUB_RUN_ID" --name sources --dir dist
+          ls -la unsigned dist
+
+      - name: Signing key
+        env:
+          KEYSTORE_B64: ${{ secrets.SIGNING_KEYSTORE_B64 }}
+          KEYSTORE_PASS: ${{ secrets.SIGNING_KEYSTORE_PASS }}
+        run: |
+          test -n "$KEYSTORE_B64" && test -n "$KEYSTORE_PASS" || { echo "::error::the signing secrets aren't set"; exit 1; }
+          mkdir -p ~/.config/canvas
+          echo "$KEYSTORE_B64" | base64 -d > ~/.config/canvas/keystore.jks
+          printf '%s' "$KEYSTORE_PASS" > ~/.config/canvas/keystore.pass
+
+      - name: Sign
+        run: |
+          # The APK as ./cv signs it; the bundle the way Play takes it (a signed jar).
+          BT=$ANDROID_HOME/build-tools/36.0.0
+          KEYS=~/.config/canvas
+          "$BT/zipalign" -f -p 4 unsigned/*.apk aligned.apk
+          "$BT/apksigner" sign --ks "$KEYS/keystore.jks" --ks-key-alias canvas --ks-pass "file:$KEYS/keystore.pass" \
+            --out dist/Canvas.apk aligned.apk
+          rm -f dist/Canvas.apk.idsig
+          mkdir bundle
+          jarsigner -keystore "$KEYS/keystore.jks" -storepass:file "$KEYS/keystore.pass" \
+            -sigalg SHA256withRSA -digestalg SHA-256 -signedjar bundle/Canvas.aab unsigned/*.aab canvas
+
+      - name: Remove the key
+        if: always()
+        run: rm -rf ~/.config/canvas
+
+      - name: Check the certificate, the version and the ABIs
+        run: |
+          . ./VERSION
+          BT=$ANDROID_HOME/build-tools/36.0.0
+          APK=dist/Canvas.apk
+          AAB=bundle/Canvas.aab
+          "$BT/apksigner" verify --print-certs "$APK" | grep -q "SHA-256 digest: $CERT" \
+            || { echo "::error::the APK isn't signed with the Canvas release key"; exit 1; }
+          test "$(keytool -printcert -jarfile "$AAB" | sed -n 's/.*SHA256: //p' | head -1 | tr -d ':' | tr 'A-F' 'a-f')" = "$CERT" \
+            || { echo "::error::the bundle isn't signed with the Canvas release key"; exit 1; }
+          badging=$("$BT/aapt2" dump badging "$APK" | head -1)
+          echo "$badging"
+          case $badging in
+            *"name='io.github.kuscher.canvas' versionCode='$VERSION_CODE' versionName='$VERSION_NAME'"*) ;;
+            *) echo "::error::the APK's version isn't VERSION's ($VERSION_NAME, code $VERSION_CODE)"; exit 1 ;;
+          esac
+          for f in "$APK" "$AAB"; do
+            abis=$(unzip -l "$f" | grep -oE 'lib/[a-z0-9_-]+/libc\+\+_shared\.so' | cut -d/ -f2 | sort -u | tr '\n' ' ')
+            test "$abis" = "arm64-v8a x86_64 " || { echo "::error::expected arm64-v8a and x86_64 in $f, got: $abis"; exit 1; }
+          done
+          sha256sum "$APK" "$AAB"
+
+      - name: Release files and notes
+        run: |
+          # The same files and notes as tools/release.sh.
+          . ./VERSION
+          (cd dist && sha256sum -- * > SHA256SUMS && cat SHA256SUMS)
+          awk -v v="$VERSION_NAME" '$0 ~ "^## " v "( |$)" {on=1; next} /^## / {on=0} on' CHANGELOG.md > notes.md
+          test -s notes.md || { echo "::error::CHANGELOG.md has no section for $VERSION_NAME"; exit 1; }
+          cat >> notes.md <<EOF
+
+          **Install:** download **Canvas.apk** below, open it from your Downloads and allow the install
+          (see [Install](https://github.com/kuscher/canvas#install)). One APK for every Googlebook, Intel and
+          Snapdragon.
+
+          **Sources:** Canvas-$VERSION_NAME-source.tar.gz is the complete source of the app (Canvas and the patched
+          Patchy, with its bundled libraries); the qt*-everywhere-src archives are the source of the Qt
+          modules it ships. SHA256SUMS lists every file's checksum.
+          EOF
+          cat notes.md
+
+      - name: Publish on GitHub
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          . ./VERSION
+          # tools/release.sh --publish pushes the tag too and makes the release itself: then leave it.
+          if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            echo "::notice::the release $GITHUB_REF_NAME is there already; left as it is"
+          else
+            gh release create "$GITHUB_REF_NAME" --verify-tag --title "Canvas $VERSION_NAME" --notes-file notes.md dist/*
+          fi
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: bundle
+          path: bundle/Canvas.aab
+          if-no-files-found: error
+          retention-days: 30
+
+  play:
+    needs: sign
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: play
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: The bundle from the sign job
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download "$GITHUB_RUN_ID" --name bundle --dir bundle
+
+      - name: Google Play (a draft on closed testing; a dry run only checks the key)
+        env:
+          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            node tools/play-upload.mjs io.github.kuscher.canvas bundle/Canvas.aab "$PLAY_NOTES" --name "${GITHUB_REF_NAME#v}"
+          else
+            node tools/play-upload.mjs io.github.kuscher.canvas --check
+          fi

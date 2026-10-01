@@ -1,7 +1,8 @@
 # Builds Canvas: Patchy at the commit in UPSTREAM with patches/ applied, as one
 # Android APK for arm64-v8a and x86_64 (Qt's multi-ABI build), with the stock
-# NDK and Qt for Android from Qt's servers. The APK is unsigned; ./cv fetch
-# downloads and signs it with the release key.
+# NDK and Qt for Android from Qt's servers, and the same build as an App Bundle
+# for Google Play. Both are unsigned: no key ever reaches this workflow. For a
+# release, release.yml runs this build and signs what it made in a separate job.
 #
 # Local builds on the Googlebook's arm64 VM use the same patches with
 # tools/toolchain.sh (the NDK's sysroot with Debian's native clang); this job
@@ -19,12 +20,14 @@ on:
       - THIRD_PARTY_NOTICES.md
       - .github/workflows/build.yml
   workflow_dispatch:
+  workflow_call: # release.yml, for a tag or a dry run
 
 permissions:
   contents: read
 
+# github.workflow is the calling workflow's name, so a release never waits behind a push's build.
 concurrency:
-  group: apk-${{ github.ref }}
+  group: apk-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
 env:
@@ -132,7 +135,8 @@ jobs:
           ls -la out
 
       - name: Save ccache
-        if: always()
+        # Not for a tag: no other run can restore a tag's cache, and it would push out main's.
+        if: always() && github.ref_type != 'tag'
         uses: actions/cache/save@v4
         with:
           path: ${{ env.CCACHE_DIR }}
