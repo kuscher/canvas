@@ -47,8 +47,8 @@ with Qt for Android, for Googlebooks. Plan and decisions: docs/PLAN.md. Research
   (`release.yml`): Canvas.apk, the source tarball with the patched Patchy, the Qt module sources and
   SHA256SUMS as a GitHub release, and the bundle as a draft on Play's closed testing. Sending the
   draft for review stays a button in the Play Console. No key file needed: the key (a new one since
-  2026-09-30, also Google Play's) is in the `release` environment's secrets on GitHub, backed up with
-  its password in the user's a private folder.
+  2026-09-30, also Google Play's) is in the `release` environment's secrets on GitHub, backed up
+  privately, outside the repo.
   "Run workflow" on release.yml is a dry run (same build, signing and checks, nothing published).
 - Fallback on a machine that has the key in `~/.config/canvas`: `./cv build universal`, then
   `tools/release.sh` (checks signature, version, ABIs and a clean tree; writes dist/v<version>) and

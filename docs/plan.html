@@ -383,7 +383,7 @@ footer { padding-block: 3rem 0; color: var(--muted); font-size: 0.9rem; }
           <tr><td>Source</td><td><code>~/canvas</code> → <a href="https://github.com/kuscher/canvas">github.com/kuscher/canvas</a>. It's private and already holds this plan and all the research. The Patchy working copy is in <code>~/.cache/canvas/patchy</code>, on branch <code>canvas</code>.</td></tr>
           <tr><td>Helper</td><td><code>./cv ci | fetch | install | start | logs | shot | release [--publish]</code></td></tr>
           <tr><td>CI</td><td>GitHub Actions on x86_64. It downloads Qt from Qt's servers, builds one APK for both chips, and runs an x86_64 emulator smoke test. The APK comes out unsigned, and <code>./cv fetch</code> signs it.</td></tr>
-          <tr><td>Signing key</td><td><code>~/.config/canvas/keystore.jks</code> and <code>keystore.pass</code>, never in git. The keystore is backed up to a private folder, with a README. The password goes in your password manager.</td></tr>
+          <tr><td>Signing key</td><td><code>~/.config/canvas/keystore.jks</code> and <code>keystore.pass</code>, never in git. The keystore is backed up privately, with a README. The password goes in your password manager.</td></tr>
           <tr><td>Releases</td><td>
             <ul>
               <li><code>Canvas.apk</code>, with a stable name so <code>releases/latest/download/Canvas.apk</code> always works.</li>

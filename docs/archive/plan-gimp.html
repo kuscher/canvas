@@ -423,7 +423,7 @@ footer { padding-block: 3rem 0; color: var(--muted); font-size: 0.9rem; }
           <tr><td>Source</td><td><code>~/canvas</code> → <a href="https://github.com/kuscher/canvas">github.com/kuscher/canvas</a>. Created today, private, holding this plan and the research.</td></tr>
           <tr><td>Helper</td><td><code>./cv ci | fetch | install | start | logs | shot | release [--publish]</code></td></tr>
           <tr><td>CI</td><td>GitHub Actions on ubuntu-24.04 x86_64, with four jobs: dependencies (per chip, cached), GIMP, the APK (Gradle and lorie's CMake), and an x86_64 emulator smoke test. CI makes an unsigned APK, and <code>./cv fetch</code> signs it.</td></tr>
-          <tr><td>Signing key</td><td><code>~/.config/canvas/keystore.jks</code> and <code>keystore.pass</code>, never in git. The keystore is backed up to a private folder, with a README. The password goes in your password manager.</td></tr>
+          <tr><td>Signing key</td><td><code>~/.config/canvas/keystore.jks</code> and <code>keystore.pass</code>, never in git. The keystore is backed up privately, with a README. The password goes in your password manager.</td></tr>
           <tr><td>Releases</td><td>
             <ul>
               <li><code>Canvas.apk</code>, with a stable name so <code>releases/latest/download/Canvas.apk</code> always works.</li>
