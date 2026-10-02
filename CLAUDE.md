@@ -3,6 +3,11 @@
 Canvas is [Patchy](https://github.com/SethRobinson/Patchy) (MIT, C++/Qt 6) built for Android
 with Qt for Android, for Googlebooks. Plan and decisions: docs/PLAN.md. Research: docs/research/.
 
+## This repo is public
+The Play listing links here. Keep out of every file, commit message and release note: device serial numbers and
+adb names, build numbers and codenames, what else is installed or open on the owner's devices, the names of his
+private projects and paths into their repos, and where signing keys are backed up (say "backed up privately").
+
 ## Layout
 
 - `UPSTREAM`: Patchy tag and commit, Qt and NDK versions. `VERSION`: versionName/versionCode.
