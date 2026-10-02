@@ -95,7 +95,7 @@ GIMP is a GTK3 program, and GTK3 cannot draw on Android by itself. GTK4 has an A
 
 ### Phase 0: foundations and a first window
 
-- Create the repo, the `./cv` helper, CI, and the signing key (kept outside git and backed up privately).
+- Create the repo, the `./cv` helper, CI, and the signing key (kept outside git and backed up).
 - Pin termux-packages and termux-x11. Set up a CI job that builds the GTK3 stack for arm64 with Canvas's app ID and paths, cached per ABI.
 - Build the Android shell: an Activity with lorie's view, the unpacker (data plus the symlink tree), and the process launcher. Strip lorie's accessibility service, exported receivers, INTERNET permission and its TCP listener.
 - Tooling: `tools/pack.py` turns the built prefix into APK native libraries and a data archive, and records the size of each part.
