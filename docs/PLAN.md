@@ -120,7 +120,7 @@ From reading Patchy at v1.00 (commit a7837a5):
 | Source | `~/canvas` → github.com/kuscher/canvas (private). The working Patchy checkout is `~/.cache/canvas/patchy`, on branch `canvas`. |
 | Helper | `./cv ci`, `fetch`, `install`, `start`, `logs`, `shot`, `release [--publish]` |
 | CI | GitHub Actions, ubuntu-24.04 x86_64: Qt from Qt's servers (aqtinstall), NDK, one multi-ABI APK, and an x86_64 emulator smoke test |
-| Signing | `~/.config/canvas/keystore.jks` + `keystore.pass`, never in git. The keystore is backed up to private storage (folder a private folder, with a README); the password goes in your password manager. |
+| Signing | `~/.config/canvas/keystore.jks` + `keystore.pass`, never in git. The keystore is backed up privately; the password goes in your password manager. |
 | Releases | `Canvas.apk` (stable name, so `releases/latest/download/Canvas.apk` works), `Canvas-<v>-source.tar.gz` (this repo plus Patchy at the pinned tag plus patches), a Qt source link or archive (LGPL), `SHA256SUMS`, and notes from `CHANGELOG.md` |
 | README | In the style of DiscoBar: icon, "⬇ Download Canvas.apk", screenshots, and a step-by-step install. It says clearly that it is built from Patchy by Seth Robinson and that he doesn't endorse this build. It has the passion-project note, "Made on a Googlebook", and a tiny Claude credit. |
 | Device | Builds go into the HP's Download folder and are installed over adb. The ASUS covers x86_64. |

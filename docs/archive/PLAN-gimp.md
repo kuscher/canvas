@@ -164,7 +164,7 @@ GIMP is a GTK3 program, and GTK3 cannot draw on Android by itself. GTK4 has an A
 | Source | `~/canvas` → github.com/kuscher/canvas (private until you flip it) |
 | Helper | `./cv`: `ci` (start a build), `fetch` (download and sign the APK), `install`, `start`, `logs`, `shot`, `release [--publish]` |
 | CI | GitHub Actions on ubuntu-24.04 x86_64. Jobs: deps (per ABI, cached by recipe hash), GIMP, APK (Gradle + lorie's CMake), and an x86_64 emulator smoke test. CI produces an unsigned APK. |
-| Signing | Release key in `~/.config/canvas/keystore.jks` + `keystore.pass`, never in git. The keystore is backed up to private storage (folder a private folder with a README); the password goes in your password manager. |
+| Signing | Release key in `~/.config/canvas/keystore.jks` + `keystore.pass`, never in git. The keystore is backed up privately; the password goes in your password manager. |
 | Releases | GitHub releases with: `Canvas.apk` (stable name, so `releases/latest/download/Canvas.apk` always works); `Canvas-<v>-source.tar.gz` (this repo, the patches, and the pinned upstream revisions); `Canvas-<v>-third-party-sources.tar` (every upstream source tarball the APK is built from, as the GPL asks); `SHA256SUMS`; notes from `CHANGELOG.md` |
 | README | In the style of DiscoBar: icon, "⬇ Download Canvas.apk", screenshots, and a step-by-step install. It says clearly that Canvas is GIMP, made by the GIMP team and built here for Googlebooks, and that it is not made or endorsed by them. It also carries the passion-project note, "Made on a Googlebook", and a tiny Claude credit. |
 | Device | Each build goes into the HP's Download folder and is installed over adb. The ASUS covers x86_64. |

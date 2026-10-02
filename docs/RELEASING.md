@@ -13,7 +13,8 @@ notes, push a tag `v<version>`, and GitHub builds, signs and publishes.
 Android only installs an update over an existing app when both are signed with the same key; a
 release signed with anything else makes everyone uninstall first. The key lives in the repo's
 `release` environment on GitHub and with the maintainer in `~/.config/canvas/` (`keystore.jks`,
-`keystore.pass`), backed up with its password to private storage (folder a private folder). It is the same key Google Play uses for Canvas, and it is
+`keystore.pass`), backed up privately, outside the repo.
+It is the same key Google Play uses for Canvas, and it is
 never committed (`.gitignore` covers `*.jks`, `*.keystore`, `*.pass`).
 
 ## Steps
