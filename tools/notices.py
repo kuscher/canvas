@@ -151,7 +151,7 @@ def main():
         "## Canvas",
         "",
         "Canvas's own code (the Android activity and helpers, the build tools and the patches to Patchy)",
-        "is Copyright (c) 2026 Alexander Kuscher, under the MIT License. Canvas is a personal passion",
+        "is Copyright (c) 2026 Fika Labs, under the MIT License. Canvas is a personal passion",
         "project, not affiliated with or endorsed by any employer, and not made or endorsed by Patchy's",
         "author.",
         "",

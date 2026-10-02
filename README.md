@@ -23,10 +23,10 @@
   <img src="https://img.shields.io/badge/internet_permission-none-2E7D32" alt="No internet permission">
   <img src="https://img.shields.io/badge/built_on-Patchy_1.00-6F3FE0" alt="Built on Patchy 1.00">
   <img src="https://img.shields.io/badge/license-MIT-555555" alt="MIT license">
-  <img src="https://img.shields.io/badge/developed_entirely_on-a_Googlebook-E0407E" alt="Developed entirely on a Googlebook">
+  <img src="https://img.shields.io/badge/developed_on-a_Googlebook-E0407E" alt="Developed on a Googlebook">
 </p>
 
-<p align="center"><sub>A personal passion project by <a href="https://github.com/kuscher">Alexander Kuscher</a>, proudly developed entirely on a Googlebook.
+<p align="center"><sub>A personal passion project by Fika Labs, proudly developed on a Googlebook.
 Not affiliated with or endorsed by any employer, or by Patchy's author (<a href="#about-this-project">more</a>).</sub></p>
 
 <p align="center">
@@ -149,7 +149,7 @@ builds, signs and publishes it ([`docs/RELEASING.md`](docs/RELEASING.md)). Devel
 
 ## Made on a Googlebook
 
-Canvas was made entirely on a Googlebook, in its built-in Linux Terminal:
+Canvas was developed on a Googlebook, in its built-in Linux Terminal:
 
 - The Terminal's Debian VM builds everything: Patchy against Qt for Android, compiled by Debian's
   own clang standing in for the NDK's, then Gradle packaging and signing.
@@ -162,7 +162,7 @@ Canvas was made entirely on a Googlebook, in its built-in Linux Terminal:
 
 ## About this project
 
-Canvas is my personal passion project, made by me, [Alexander Kuscher](https://github.com/kuscher),
+Canvas is my personal passion project, published as Fika Labs and made
 in my own time. It has no affiliation with my employer: my employer didn't make, sponsor, review
 or endorse it, and nothing here speaks for my employer or endorses its products.
 

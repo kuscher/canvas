@@ -27,4 +27,4 @@ Private
 No internet permission, no accounts, no ads, no analytics. Canvas sees only the files you open in it.
 
 Free and open source
-Canvas is a personal passion project by Alexander Kuscher, not affiliated with or endorsed by any employer, or by Patchy's author. The code is MIT-licensed: github.com/kuscher/canvas
+Canvas is a personal passion project, not affiliated with or endorsed by any employer, or by Patchy's author. The code is MIT-licensed: github.com/kuscher/canvas

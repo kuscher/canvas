@@ -17,9 +17,9 @@ index 33e41ba..d3e7945 100644
      android_credit->setTextInteractionFlags(Qt::TextBrowserInteraction);
      set_themed_label_text(
          *android_credit,
--        QStringLiteral("This Android build is Canvas, made for Googlebooks by Alexander Kuscher. It is a "
+-        QStringLiteral("This Android build is Canvas, made for Googlebooks by Fika Labs. It is a "
 -                       "personal hobby project, not made or endorsed by Seth A. Robinson. "
-+        QStringLiteral("This Android build is Canvas, made for Googlebooks by Alexander Kuscher: a "
++        QStringLiteral("This Android build is Canvas, made for Googlebooks by Fika Labs: a "
 +                       "personal passion project, not affiliated with or endorsed by any employer, and not "
 +                       "made or endorsed by Seth A. Robinson. "
                         "<a style=\"color:@splash_link_text; text-decoration:none;\" "
